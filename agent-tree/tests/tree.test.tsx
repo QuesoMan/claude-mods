@@ -51,6 +51,7 @@ for (const surface of SURFACES) {
     }
     on('ui.panes', () => ({ value: [] }))
     on('agent.spawn', ($, e) => ({ model: 'claude-sonnet-5-5', agentId: ids[e.description] }))
+    on('session.surfaces', () => ({ value: [surface] }))
     on('ui.open', () => ({ value: { isPlaced: true as const } }))
     on('turn.complete', ($, e) => ({ text: e.answer }))
 
@@ -147,6 +148,7 @@ for (const surface of SURFACES) {
       value: [{ id: 'agent-tree', title: 'Agents', isShown, isFocused: false, isPlaced: true }],
     }))
     on('agent.spawn', () => ({ model: 'claude-fable-5-1', agentId: 'a-fable' }))
+    on('session.surfaces', () => ({ value: [surface] }))
     on('ui.open', () => ({ value: { isPlaced: true as const } }))
 
     await $.agent.spawn(spawnInput('deep dive', 'general-purpose'))
@@ -167,6 +169,22 @@ for (const surface of SURFACES) {
     expect(JSON.parse(files[hud] ?? '{}').display.showAgents).toBe(true)
   })
 
+  test(`a run with no surface records the agent without opening the pane (${surface})`, async ($, on) => {
+    let opens = 0
+    on('ui.panes', () => ({ value: [] }))
+    on('session.surfaces', () => ({ value: [] }))
+    on('ui.open', () => {
+      opens += 1
+      return { value: { isPlaced: true as const } }
+    })
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a-headless' }))
+
+    await $.agent.spawn(spawnInput('headless', 'Explore'))
+    expect(opens).toBe(0)
+    const ui = await mountPane($, surface)
+    expect(await ui.find({ text: /Explore/ })).toBeDefined()
+  })
+
   test(`an agent whose loop events beat its spawn record still ends up done (${surface})`, async ($, on) => {
     const engine = $
     on('ui.panes', () => ({ value: [] }))
@@ -175,6 +193,7 @@ for (const surface of SURFACES) {
       await engine.turn.complete(finish('a-fast', 'claude-haiku-5-5', 10))
       return { model: 'claude-haiku-5-5', agentId: 'a-fast' }
     })
+    on('session.surfaces', () => ({ value: [surface] }))
     on('ui.open', () => ({ value: { isPlaced: true as const } }))
     on('turn.complete', ($, e) => ({ text: e.answer }))
 

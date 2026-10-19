@@ -307,7 +307,8 @@ export const register: Register = on => {
         model: started.model,
       })),
     )
-    if (!(await read($, autoOpened))) {
+    // A plain -p run has no surface to open a pane on.
+    if (!(await read($, autoOpened)) && (await $.session.surfaces()).length > 0) {
       await update($, autoOpened, () => true)
       // Not awaited, so a slow surface never holds up the spawn.
       void $.ui
