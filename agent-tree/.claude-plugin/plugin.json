@@ -1,0 +1,6 @@
+{
+  "name": "agent-tree",
+  "version": "0.1.0",
+  "description": "Live pane showing the subagent spawn tree: who spawned whom, on which model, and what each is doing",
+  "types": "./types/index.d.ts"
+}

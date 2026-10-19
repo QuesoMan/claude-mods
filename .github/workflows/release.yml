@@ -1,0 +1,36 @@
+name: Release
+
+# After CI passes on main, publish a release for each mod whose version has no tag yet.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Tag and release new mod versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          for manifest in */.claude-plugin/plugin.json; do
+            mod="${manifest%%/*}"
+            version="$(jq -r .version "$manifest")"
+            tag="$mod-v$version"
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "$tag exists, skipping"
+              continue
+            fi
+            gh release create "$tag" --target "$SHA" --title "$mod $version" --generate-notes
+          done

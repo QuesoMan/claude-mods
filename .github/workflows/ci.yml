@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - name: Install Claude Code
+        run: bun add -g @anthropic-ai/claude-code@2.1.304
+      - name: Validate marketplace
+        run: claude plugin validate .
+      - name: Validate and test each mod
+        run: |
+          for manifest in */.claude-plugin/plugin.json; do
+            mod="${manifest%%/*}"
+            echo "::group::$mod"
+            claude plugin validate "$mod"
+            claude plugin test "$mod"
+            echo "::endgroup::"
+          done
