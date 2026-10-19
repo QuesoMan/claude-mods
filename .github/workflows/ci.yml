@@ -13,7 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Pinned images: the -latest labels move under you and the runner warns about it.
+        os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
