@@ -20,6 +20,9 @@ jobs:
       run:
         shell: bash
     steps:
+      # Checkout runs git init; naming the default branch keeps git's hint out of the log.
+      - name: Configure git
+        run: git config --global init.defaultBranch main
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
@@ -27,14 +30,20 @@ jobs:
       # --trust lets the package's postinstall fetch the native binary; bun skips it otherwise.
       - name: Install Claude Code
         run: bun add -g --trust @anthropic-ai/claude-code@2.1.304
+      # A validation warning fails the build, so the marketplace and each mod stay clean.
       - name: Validate marketplace
-        run: claude plugin validate .
+        run: |
+          out="$(claude plugin validate . 2>&1)"
+          echo "$out"
+          if grep -q '⚠' <<<"$out"; then echo "::error::marketplace validation has warnings"; exit 1; fi
       - name: Validate and test each mod
         run: |
           for manifest in */.claude-plugin/plugin.json; do
             mod="${manifest%%/*}"
             echo "::group::$mod"
-            claude plugin validate "$mod"
+            out="$(claude plugin validate "$mod" 2>&1)"
+            echo "$out"
+            if grep -q '⚠' <<<"$out"; then echo "::error::$mod validation has warnings"; exit 1; fi
             claude plugin test "$mod"
             echo "::endgroup::"
           done

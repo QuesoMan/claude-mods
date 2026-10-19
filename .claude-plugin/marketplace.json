@@ -1,5 +1,6 @@
 {
   "name": "claude-mods",
   "owner": { "name": "jz-wilson" },
+  "description": "Mods for Claude Code",
   "plugins": [{ "name": "agent-tree", "source": "./agent-tree" }]
 }
