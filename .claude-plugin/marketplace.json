@@ -2,5 +2,8 @@
   "name": "claude-mods",
   "owner": { "name": "jz-wilson" },
   "description": "Mods for Claude Code",
-  "plugins": [{ "name": "agent-tree", "source": "./agent-tree" }]
+  "plugins": [
+    { "name": "agent-tree", "source": "./agent-tree" },
+    { "name": "cache-bar", "source": "./cache-bar" }
+  ]
 }
