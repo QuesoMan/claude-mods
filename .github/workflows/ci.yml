@@ -44,6 +44,7 @@ jobs:
             out="$(claude plugin validate "$mod" 2>&1)"
             echo "$out"
             if grep -q '⚠' <<<"$out"; then echo "::error::$mod validation has warnings"; exit 1; fi
-            claude plugin test "$mod"
+            # claude plugin test needs a hooks module; a mod without one (such as a status-line script) runs bun test.
+            if [ -f "$mod/hooks/hooks.json" ]; then claude plugin test "$mod"; else bun test "$mod"; fi
             echo "::endgroup::"
           done
