@@ -30,6 +30,8 @@ const MODS: readonly Mod[] = [
   { name: 'reflect', title: 'Reflect', what: 'Saves your corrections as lasting rules', pane: false, hide: false, ask: false, tip: '' },
   { name: 'helper-desk', title: 'Helper Desk', what: 'Task progress bar above the prompt, plus a card per subagent', pane: true, hide: true, ask: true, tip: '/helpers to open' },
   { name: 'chat-inventory', title: 'Chat Inventory', what: 'Connectors, files and skills this chat used', pane: true, hide: true, ask: true, tip: '/inventory to open' },
+  // A status-line script, not a hooks mod, so the scan cannot find it; it reads switches.json itself.
+  { name: 'cache-bar', title: 'Cache Bar', what: 'Prompt-cache expiry bar under the status line', pane: false, hide: false, ask: false, tip: '' },
 ]
 
 // Module variables reset on a reload; the switches themselves live in the file.
@@ -249,7 +251,8 @@ async function scan($: EngineInterface): Promise<Row[]> {
     if (seen.has(dir)) continue
     seen.add(dir)
     const row = await inspect($, dir, chatOnly)
-    if (row && !found.has(row.name)) found.set(row.name, row)
+    // The same mod from two marketplaces: keep the copy that can be switched.
+    if (row && (!found.has(row.name) || (row.switchable && !found.get(row.name)?.switchable))) found.set(row.name, row)
   }
   const rows: Row[] = MODS.map(m => {
     const hit = found.get(m.name)
