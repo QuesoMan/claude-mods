@@ -79,11 +79,7 @@ function rig(on: On, files: Record<string, string>) {
 }
 
 /** What the band says: the drawing's alt text on desktop, every text in the terminal. */
-async function bandSays(v: { find: (q: object) => Promise<unknown>; findAll: (q: object) => Promise<unknown[]> }, surface: 'desktop' | 'terminal') {
-  if (surface === 'desktop') {
-    const svg = (await v.find({ type: 'Svg' })) as { props: { alt?: string } } | undefined
-    return svg ? String(svg.props.alt) : ''
-  }
+async function bandSays(v: { find: (q: object) => Promise<unknown>; findAll: (q: object) => Promise<unknown[]> }, _surface: 'desktop' | 'terminal') {
   return ((await v.findAll({ type: 'Text' })) as { text: string }[]).map(t => t.text).join(' ')
 }
 
@@ -402,22 +398,20 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(says, 'plan title').toContain('Make the deck')
     expect(says, 'count').toContain('Tasks 2/4')
     expect(says, 'percent').toContain('50%')
-    expect(await v.find({ type: 'Text', text: /^Now: Build the slides$/ }), 'current step under the bar').toBeDefined()
-    if (surface === 'desktop') {
-      const svg = String((await v.find({ type: 'Svg' }))!.props.source)
-      expect(svg, 'purple gradient').toContain('#6d28d9')
-      expect(svg, 'sparkles twinkle').toContain('@keyframes tw')
-      expect(svg, 'the step in progress glows').toContain('class="lv"')
-    } else {
-      const cells = await v.findAll({ text: /^█$/ })
-      expect(cells, 'half the bar is filled').toHaveLength(23)
-      expect(cells[0]!.props.color, 'light purple at the start').toBe('#c4b5fd')
-      expect(cells[22]!.props.color, 'deep purple at the head').toBe('#6d28d9')
-      const live1 = String((await v.find({ text: /^▓+$/ }))!.props.color)
-      await clock.advance(360)
-      const live2 = String((await v.find({ text: /^▓+$/ }))!.props.color)
-      expect(live1 !== live2, 'the step in progress shimmers').toBe(true)
-    }
+    expect(await v.find({ type: 'Text', text: /^✓ Read the brief$/ }), 'done step').toBeDefined()
+    expect(await v.find({ type: 'Text', text: /^✓ Draft the outline$/ }), 'done step').toBeDefined()
+    expect(await v.find({ type: 'Text', text: /^○ Check the deck$/ }), 'pending step').toBeDefined()
+    const live1 = String((await v.find({ type: 'Text', text: /^▶ Build the slides$/ }))!.props.color)
+    await clock.advance(360)
+    const live2 = String((await v.find({ type: 'Text', text: /^▶ Build the slides$/ }))!.props.color)
+    expect(live1 !== live2, 'the step in progress flashes').toBe(true)
+    expect(await v.find({ text: /^█$/ }), 'no progress bar').toBeUndefined()
+    // A row budget smaller than the list shows a window from just before the step in progress.
+    const tight = await $.ui.mount({ plugin: 'helper-desk', surface, component: 'AbovePrompt', props: { ...(bandProps(80) as object), maxRows: 4 } as never })
+    expect(await tight.find({ type: 'Text', text: /^✓ 2 earlier done$/ }), 'earlier steps folded').toBeDefined()
+    expect(await tight.find({ type: 'Text', text: /^▶ Build the slides$/ }), 'step in progress kept').toBeDefined()
+    expect(await tight.find({ type: 'Text', text: /^○ 1 more$/ }), 'later steps folded').toBeDefined()
+    expect(await tight.findAll({ type: 'Text', text: /^[✓▶○] / }), 'within the row budget').toHaveLength(3)
 
     // The bar follows the plan, not subagents: a running subagent adds nothing to it.
     await $.agent.spawn({ tool_use_id: 's1', prompt: 'x', description: 'Build the slides', subagentType: 'general-purpose' } as never)
@@ -453,7 +447,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(saved.steps.map(st => st.text), 'todos mirrored').toEqual(['Pull the numbers', 'Write the summary', 'Send the link'])
     const v = await $.ui.mount({ plugin: 'helper-desk', surface, component: 'AbovePrompt', props: bandProps() })
     expect(await bandSays(v, surface), 'band from TodoWrite').toContain('Tasks 1/3')
-    expect(await v.find({ type: 'Text', text: /^Now: Write the summary$/ }), 'current todo').toBeDefined()
+    expect(await v.find({ type: 'Text', text: /^▶ Write the summary$/ }), 'current todo').toBeDefined()
   })
 
   test(`a step finishing raises a toast, and a finished plan holds 20 s then hides (${surface})`, { timeoutMs: 30000 }, async ($, on) => {

@@ -34,7 +34,7 @@ const GOOD = '#16a34a'
 const BAD = '#dc2626'
 const WARN = '#eab308'
 const INK = '#1c1917'
-// The task bar is a purple gradient, light at the start and deep at the head (after Johnny's Savvy Progress).
+// The task list is purple: the step in progress flashes between deep and light.
 const P_LIGHT = '#c4b5fd'
 const P_MID = '#8b5cf6'
 const P_DEEP = '#6d28d9'
@@ -525,10 +525,10 @@ async function switchPoll($: EngineInterface) {
 const PLAN_TOOL = 'mcp__helper-desk__plan'
 const MIRRORED = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate'])
 const PLAN_PROMPT =
-  'Your to-do list is the mcp__helper-desk__plan tool (this app has no TodoWrite). The user watches it as a progress bar. ' +
+  'Your to-do list is the mcp__helper-desk__plan tool (this app has no TodoWrite). The user watches it as a task list above the prompt. ' +
   'For any task that needs 2 or more steps or tool calls, call it first, before other tools, with every step in order and the first one in_progress. ' +
   'Call it again with the full list each time a step finishes or a new one starts. Mark the last step completed before your final answer. ' +
-  'When you write a plan for the user to approve, save its steps with the tool too, all pending, so the plan shows in the bar and the Chat Inventory to-do list. ' +
+  'When you write a plan for the user to approve, save its steps with the tool too, all pending, so the plan shows in the task list and the Chat Inventory to-do list. ' +
   'A step that launches subagents is one step. Skip it only for a one-line answer with no tool calls.'
 // Main-chat tool calls in a turn before the nudge to make a plan.
 const NUDGE_AFTER = 1
@@ -789,9 +789,8 @@ function barParts(phase: HelperPhase, w: number, tick: number, seat: number): [s
   return ['░'.repeat(from), '█'.repeat(Math.max(0, to - from)), '░'.repeat(w - Math.max(from, to))]
 }
 
-// ---------- Sparkle bars: SVG for the desktop ----------
+// ---------- Sparkle bars: SVG for the desktop subagent cards ----------
 
-const FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif"
 const CELL = 3
 
 // Fixed noise, so the sparkles sit still between redraws and only their CSS twinkle moves.
@@ -799,19 +798,6 @@ const noise = (x: number, y: number) => {
   const v = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
   return v - Math.floor(v)
 }
-const xml = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
-// A rough width of system UI text, enough to place the bar after the title.
-const textPx = (s: string, size: number) => [...s].reduce((n, ch) => n + (/[\s.,:;'|!il1()[\]]/.test(ch) ? 0.3 : /[A-Zmw@%]/.test(ch) ? 0.72 : 0.56) * size, 0)
-const fitPx = (s: string, size: number, max: number) => {
-  if (textPx(s, size) <= max) return s
-  let out = ''
-  for (const ch of s) {
-    if (textPx(`${out}${ch}…`, size) > max) break
-    out += ch
-  }
-  return `${out}…`
-}
-
 /** Twinkle classes s0 to s3, out of phase; `slow` for a finished bar. */
 const twinkleCss = (slow: boolean) =>
   `.s0,.s1,.s2,.s3{animation:tw ${slow ? 3.2 : 2.1}s ease-in-out infinite}` +
@@ -833,71 +819,6 @@ function sparkles(w: number, h: number, size: number, base: number, rise: number
     }
   }
   return out.join('')
-}
-
-/** A colour between `a` and `b`, both #rrggbb; `t` from 0 to 1. */
-function mix(a: string, b: string, t: number): string {
-  const at = (h: string, i: number) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16)
-  return `#${[0, 1, 2].map(i => Math.round(at(a, i) + (at(b, i) - at(a, i)) * t).toString(16).padStart(2, '0')).join('')}`
-}
-
-const BAND_H = 24
-const TRACK_H = 14
-
-/** The task bar above the prompt, one drawing: dot, title, purple gradient track, ticks, Tasks pill, percent. */
-function bandSvg(p: BandPlan, W: number): string {
-  const n = p.steps.length
-  const done = doneCount(p.steps)
-  const ratio = n ? done / n : 0
-  const title = fitPx(p.title, 13, Math.max(60, W * 0.35))
-  const percent = `${Math.round(ratio * 100)}%`
-  const barX = Math.round(14 + textPx(title, 13) + 12)
-  const barW = Math.max(60, W - barX - 44)
-  const y0 = (BAND_H - TRACK_H) / 2
-  const fillW = Math.round(barW * ratio)
-  // The step in progress glows softly from the fill to that step's end.
-  const live = p.steps.some(st => st.status === 'in_progress')
-  const liveW = live ? Math.round((barW * Math.min(n, done + 1)) / n) - fillW : 0
-  const ticks: string[] = []
-  for (let i = 1; i < n; i++) {
-    const x = Math.round((barW * i) / n)
-    if (x > fillW + 3) ticks.push(`<rect x="${x}" y="${TRACK_H / 2 - 4}" width="1.5" height="8" rx="0.75"/>`)
-  }
-  const label = `Tasks ${done}/${n}`
-  const pillW = Math.round(18 + label.length * 6.4)
-  const pillX = Math.max(0, Math.min(barW - pillW, fillW - pillW))
-  const finished = n > 0 && done === n
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${BAND_H}" viewBox="0 0 ${W} ${BAND_H}">
-<style>
-.tt{fill:#1f1f1f}.pc{fill:#6b6b6b}.k{fill:#ece9fb}.tk{fill:#c9c2f0}
-@media (prefers-color-scheme: dark){.tt{fill:#ececec}.pc{fill:#a3a3a3}.k{fill:#2a2640}.tk{fill:#4c4470}}
-${twinkleCss(finished)}
-.lv{animation:gl 1.6s ease-in-out infinite}@keyframes gl{0%,100%{opacity:.18}50%{opacity:.5}}
-.sh{animation:sw 2.6s linear infinite}@keyframes sw{from{transform:translateX(-70px)}to{transform:translateX(${fillW + 70}px)}}
-@media (prefers-reduced-motion: reduce){.s0,.s1,.s2,.s3,.lv,.sh{animation:none}}
-</style>
-<defs>
-<linearGradient id="hdb-g" x1="0" x2="1"><stop offset="0" stop-color="${P_LIGHT}"/><stop offset=".55" stop-color="${P_MID}"/><stop offset="1" stop-color="${P_DEEP}"/></linearGradient>
-<linearGradient id="hdb-s" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
-<clipPath id="hdb-c"><rect width="${barW}" height="${TRACK_H}" rx="${TRACK_H / 2}"/></clipPath>
-<clipPath id="hdb-f"><rect width="${fillW}" height="${TRACK_H}"/></clipPath>
-</defs>
-<circle cx="5" cy="${BAND_H / 2}" r="4" fill="${P_DEEP}"/>
-<text class="tt" x="14" y="${BAND_H / 2 + 4.5}" font-family="${FONT}" font-size="13" font-weight="600">${xml(title)}</text>
-<g transform="translate(${barX},${y0})">
-<rect class="k" width="${barW}" height="${TRACK_H}" rx="${TRACK_H / 2}"/>
-<g clip-path="url(#hdb-c)">
-${liveW > 0 ? `<rect class="lv" x="${fillW}" width="${liveW}" height="${TRACK_H}" fill="${P_MID}"/>` : ''}
-${fillW > 0 ? `<rect width="${fillW}" height="${TRACK_H}" fill="url(#hdb-g)"/>` : ''}
-<g fill="#ffffff">${sparkles(fillW, TRACK_H, 1.6, 0.12, 0.4)}</g>
-${fillW > 0 && !finished ? `<g clip-path="url(#hdb-f)"><rect class="sh" width="70" height="${TRACK_H}" fill="url(#hdb-s)"/></g>` : ''}
-<g class="tk">${ticks.join('')}</g>
-</g>
-<rect x="${pillX}" width="${pillW}" height="${TRACK_H}" rx="${TRACK_H / 2}" fill="${P_DEEP}"/>
-<text x="${pillX + pillW / 2}" y="${TRACK_H / 2 + 4}" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="600" fill="#ffffff">${xml(label)}</text>
-</g>
-<text class="pc" x="${W - 4}" y="${BAND_H / 2 + 4.5}" text-anchor="end" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">${percent}</text>
-</svg>`
 }
 
 const CARD_BAR_H = 10
@@ -939,12 +860,12 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
     sessionId = await $.session.id().catch(() => '')
-    await $.command.register({ name: 'helpers', description: 'Show the Helper Desk: the task progress bar and one live card per subagent', immediate: true })
+    await $.command.register({ name: 'helpers', description: 'Show the Helper Desk: the task list and one live card per subagent', immediate: true })
     await $.tool.register({
       name: 'plan',
       description:
         'Save the plan for the job in front of you: the steps in order, each pending, in_progress or completed. ' +
-        'It draws a progress bar above the prompt for the user. Send the whole list every time, like TodoWrite.',
+        'It draws the task list above the prompt for the user, the step in progress flashing. Send the whole list every time, like TodoWrite.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1003,7 +924,7 @@ export const register: Register = on => {
     return { element: e.element }
   })
 
-  // ✕ on the task bar hides it until the plan changes again.
+  // ✕ on the task list hides it until the plan changes again.
   on('ui.press', { plugin: NAME, element: 'plan-dismiss' }, async ($, e) => {
     planShown = false
     holdTimer?.cancel()
@@ -1332,7 +1253,7 @@ export const register: Register = on => {
     )
   })
 
-  // The task bar above the prompt: it moves each time a to-do or plan step is marked done.
+  // The task list above the prompt: every step, the ones in progress flashing.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (off || e.props.hasSurvey) return next(e)
     const { value: isOff = false } = await $.state.get(OFF)
@@ -1342,71 +1263,63 @@ export const register: Register = on => {
     // The other mods' bands draw above this one. Claude Code's own placeholder is never nested.
     const drawn = await Promise.resolve(next(e)).catch(() => null)
     const rest = drawn && typeof drawn === 'object' && (drawn as { type?: string }).type !== 'engine' ? drawn : null
-    const els = $.ui.resolve(e)
-    const { Box, Text, Button } = els
+    const { Box, Text, Button } = $.ui.resolve(e)
     const cols = typeof e.props.bodyColumns === 'number' && e.props.bodyColumns > 0 ? Math.floor(e.props.bodyColumns) : 0
     const n = p.steps.length
     const done = doneCount(p.steps)
     const pct = `${Math.round((done / n) * 100)}%`
     const label = `Tasks ${done}/${n}`
-    const now = p.steps.find(st => st.status === 'in_progress')
-    const nextUp = p.steps.find(st => st.status === 'pending')
-    const line = now ? `Now: ${now.text}` : done === n ? 'All steps done' : nextUp ? `Next: ${nextUp.text}` : ''
-    const dismiss = <Button key="plan-dismiss" label="✕" plain dimColor role="dismiss" onPress={() => undefined} />
-
-    let row: unknown
-    let w: number
-    if (e.surface !== 'terminal' && 'Svg' in els) {
-      const { Svg } = els
-      // About 8 CSS pixels a column; the rest is the dismiss button and its gap.
-      const px = Math.max(180, Math.min(1600, (cols || 100) * 8 - 56))
-      w = cols || BAR_FALLBACK
-      row = (
-        <Box key="plan-row" flexDirection="row" alignItems="center" gap={1}>
-          <Svg key="plan-svg" source={bandSvg(p, px)} alt={`${p.title}: ${label}, ${pct}`} width={px} height={BAND_H} />
-          {dismiss}
-        </Box>
-      )
-    } else {
-      // The terminal: dot, title, a gradient of blocks, the step in progress shimmering, count, percent.
-      const { value: tick = 0 } = await $.state.get(SHIM)
-      w = cols || BAR_FALLBACK
-      const titleW = Math.max(6, Math.min(28, p.title.length, Math.floor(w / 3)))
-      const barW = Math.max(6, w - titleW - label.length - pct.length - 10)
-      const fillC = Math.round((barW * done) / n)
-      const liveC = now ? Math.max(0, Math.round((barW * Math.min(n, done + 1)) / n) - fillC) : 0
-      const cells = Array.from({ length: fillC }, (_, i) => mix(P_LIGHT, P_DEEP, fillC > 1 ? i / (fillC - 1) : 1))
-      row = (
-        <Box key="plan-row" flexDirection="row" gap={1} width={w}>
-          <Text color={P_DEEP}>●</Text>
-          <Box width={titleW} flexShrink={0}>
-            <Text bold wrap="truncate-end">
-              {cut(p.title, titleW)}
-            </Text>
-          </Box>
-          <Text key="plan-bar">
-            {cells.map((c, i) => (
-              <Text key={`f-${i}`} color={c}>
-                █
-              </Text>
-            ))}
-            {liveC ? <Text color={tick % 2 ? P_MID : P_LIGHT}>{'▓'.repeat(liveC)}</Text> : null}
-            <Text dimColor>{'░'.repeat(Math.max(0, barW - fillC - liveC))}</Text>
-          </Text>
-          <Text bold color={P_MID}>{label}</Text>
-          <Text dimColor>{pct}</Text>
-          {dismiss}
-        </Box>
-      )
-    }
+    // The shimmer clock ticks only while a step is in progress; each tick flips the flash.
+    const { value: tick = 0 } = await $.state.get(SHIM)
+    const flash = tick % 2 === 0
+    const w = cols || (e.surface === 'terminal' ? BAR_FALLBACK : 100)
+    const titleW = Math.max(6, w - label.length - pct.length - 10)
+    // Every step fits unless the band's row budget is smaller: then a window from just before the step in progress.
+    // The window spends one row each on the header, "earlier done" and "more".
+    const cap = typeof e.props.maxRows === 'number' && e.props.maxRows > 0 ? Math.floor(e.props.maxRows) : Infinity
+    const room = n + 1 <= cap ? n : Math.max(1, cap - 3)
+    const live = p.steps.findIndex(st => st.status === 'in_progress')
+    const open = live >= 0 ? live : p.steps.findIndex(st => st.status !== 'completed')
+    const from = n <= room ? 0 : Math.max(0, Math.min((open < 0 ? n : open) - (room > 1 ? 1 : 0), n - room))
+    const shown = p.steps.slice(from, from + room)
+    const more = n - from - shown.length
     return (
       <Box flexDirection="column">
         {rest as never}
         <Box key="plan-band" flexDirection="column">
-          {row as never}
-          {line ? (
-            <Text key="plan-now" dimColor wrap="truncate-end">
-              {cut(line, w)}
+          <Box key="plan-row" flexDirection="row" gap={1}>
+            <Text color={P_DEEP}>●</Text>
+            <Text bold wrap="truncate-end">
+              {cut(p.title, titleW)}
+            </Text>
+            <Text bold color={P_MID}>{label}</Text>
+            <Text dimColor>{pct}</Text>
+            <Button key="plan-dismiss" label="✕" plain dimColor role="dismiss" onPress={() => undefined} />
+          </Box>
+          {from ? (
+            <Text key="plan-earlier" dimColor>
+              {`✓ ${from} earlier done`}
+            </Text>
+          ) : null}
+          {shown.map((st, k) => {
+            const i = from + k
+            return st.status === 'in_progress' ? (
+              <Text key={`step-${i}`} bold color={flash ? P_DEEP : P_LIGHT} wrap="truncate-end">
+                {cut(`▶ ${st.text}`, w)}
+              </Text>
+            ) : st.status === 'completed' ? (
+              <Text key={`step-${i}`} color={GOOD} dimColor wrap="truncate-end">
+                {cut(`✓ ${st.text}`, w)}
+              </Text>
+            ) : (
+              <Text key={`step-${i}`} dimColor wrap="truncate-end">
+                {cut(`○ ${st.text}`, w)}
+              </Text>
+            )
+          })}
+          {more > 0 ? (
+            <Text key="plan-more" dimColor>
+              {`○ ${more} more`}
             </Text>
           ) : null}
         </Box>
