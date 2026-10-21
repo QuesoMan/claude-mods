@@ -189,13 +189,13 @@ async function step<T>($: EngineInterface, i: number, work: () => Promise<T>, de
 
 type Gathered = { messages: SessionMessage[]; tools: number; files: string[]; skills: string[]; links: string[] }
 
-const PATH_RE = /(?:~|\/Users)\/[^\s'"`<>()|;,*]+/g
+const PATH_RE = /(?:~|\/Users|[A-Za-z]:[\\/]Users)[\\/][^\s'"`<>()|;,*]+/g
 const URL_RE = /https?:\/\/[^\s'"`<>()\]]+/g
 
 async function gatherFiles($: EngineInterface, messages: SessionMessage[]) {
   const count = new Map<string, number>()
   const add = (raw: string, weight: number) => {
-    let p = raw.replace(/[.:]+$/, '')
+    let p = raw.replace(/\\/g, '/').replace(/[.:]+$/, '')
     if (p.startsWith('~/')) p = home + p.slice(1)
     if (p.includes('/.claude/projects/') || p.includes('/tool-results/') || p.startsWith('/private/tmp') || p.startsWith('/tmp')) return
     count.set(p, (count.get(p) ?? 0) + weight)
@@ -203,7 +203,7 @@ async function gatherFiles($: EngineInterface, messages: SessionMessage[]) {
   for (const m of messages) {
     for (const u of m.toolUses) {
       const fp = u.input.file_path ?? u.input.notebook_path ?? u.input.path
-      if (typeof fp === 'string' && fp.startsWith('/')) add(fp, u.tool === 'Read' ? 2 : 3)
+      if (typeof fp === 'string' && /^(?:\/|[A-Za-z]:[\\/])/.test(fp)) add(fp, u.tool === 'Read' ? 2 : 3)
       if (u.tool === 'Bash' && typeof u.input.command === 'string') {
         for (const hit of u.input.command.match(PATH_RE) ?? []) add(hit, 1)
       }
@@ -496,6 +496,14 @@ async function startNew($: EngineInterface) {
     return
   }
   const url = `claude://code/new?q=${encodeURIComponent(handoffText)}`
+  // On Windows rundll32 exits 0 whether or not the app opened, and long links can be dropped:
+  // copy the handoff too and say so honestly.
+  if ((await $.env.get('OS')) === 'Windows_NT') {
+    const copied = await $.ui.copy({ text: handoffText })
+    await openTarget($, url.length <= 2000 ? url : 'claude://code/new')
+    await note($, copied.isCopied ? 'Opening a new chat. The handoff is also copied: paste it there if the chat is empty.' : 'Opening a new chat. If it is empty, use Copy handoff prompt.')
+    return
+  }
   const r = await openTarget($, url)
   await note($, r.exitCode === 0 ? 'A new chat is filled in with the handoff. Press Return there to start it.' : 'The new chat did not open. Use Copy handoff prompt instead.')
 }

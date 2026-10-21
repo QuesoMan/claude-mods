@@ -257,9 +257,11 @@ async function log($: EngineInterface, line: string) {
 // Reads which cache length this chat's replies were written with (5 min or 1 hour).
 async function detect($: EngineInterface) {
   if (!sid) return
-  let r = await $.process.run(['python3', `${$.plugin.root}/bin/ttl.py`, sid])
-  // Windows installs often have only `python` (python3 may be the Store stub).
-  if (r.exitCode !== 0) r = await $.process.run(['python', `${$.plugin.root}/bin/ttl.py`, sid])
+  // Windows installs often have only `python`; a missing command throws rather than exiting non-zero.
+  const py = (bin: string) => $.process.run([bin, `${$.plugin.root}/bin/ttl.py`, sid]).catch(() => null)
+  let r = await py('python3')
+  if (!r || r.exitCode !== 0) r = (await py('python')) ?? r
+  if (!r) return log($, 'ttl check failed: no python3 or python')
   const out = r.stdout.trim()
   if (out === '5m' || out === '1h') detected = out
   else if (r.exitCode !== 0) await log($, `ttl check failed: ${r.stderr.slice(0, 200)}`)
