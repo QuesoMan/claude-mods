@@ -176,6 +176,66 @@ for (const surface of ['desktop', 'terminal'] as const) {
   })
 }
 
+test('/refresh <focus> and the refresh tool focus point the handoff; the focus is used once', { timeoutMs: 30000 }, async ($, on) => {
+  const files: Record<string, string> = {}
+  const prompts: string[] = []
+  on('session.start', async ($, e) => ({ cwd: e.cwd }) as never)
+  on('command.register', async () => ({ value: undefined }) as never)
+  on('tool.register', async () => ({ value: { tool: 'mcp__handoff__refresh' } }) as never)
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('session.id', async () => ({ value: 'sid' }) as never)
+  on('session.cwd', async () => ({ value: '/Users/test/vault' }) as never)
+  on('session.usage', async () => ({ value: { context: { tokens: 90_000, window: 1_000_000 } } }) as never)
+  on('session.messages', async () => ({ value: [{ role: 'user', text: 'Fix the cluster', toolUses: [] }] }) as never)
+  on('model.fork', async ($, e) => {
+    prompts.push((e as { prompt: string }).prompt)
+    return { value: { isAnswered: true, text: HANDOFF, usage: {} } } as never
+  })
+  on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
+  on('fs.write', async ($, e) => {
+    const { path, text } = e as { path: string; text: string }
+    files[path.replace(/\\/g, '/')] = text
+    return { value: undefined } as never
+  })
+  on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
+  on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
+  on('store.get', async () => ({ value: undefined }) as never)
+  on('store.set', async () => ({ value: undefined }) as never)
+  on('turn.complete', async () => ({ text: '' }) as never)
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>REST</Text>
+  })
+  await $.session.start({ source: 'startup', cwd: '/Users/test/vault', surface: 'terminal', isInteractive: true } as never)
+
+  const props = { isWorking: false, hasSurvey: false } as never
+  const said = JSON.stringify(await $.command.run({ command: 'refresh', args: '  the Longhorn volume migration  ' } as never))
+  expect(said, 'the reply names the focus').toContain('Focus for the next session: the Longhorn volume migration')
+  let v = await $.ui.mount({ plugin: 'handoff', surface: 'terminal', component: 'AbovePrompt', props })
+  expect(await v.find({ text: /Focus: the Longhorn volume migration/ }), 'the offer shows the focus').toBeDefined()
+  await v.press({ key: 'refresh' })
+  await clock.advance(10_000)
+  expect(prompts[0] ?? '', 'the fork prompt carries the focus').toContain('"the Longhorn volume migration"')
+  expect(prompts[0] ?? '', 'live-state claims are asked for').toContain('## Live-state claims')
+  const draft = Object.entries(files).find(([k]) => k.endsWith('-draft.md'))?.[1] ?? ''
+  expect(draft, 'the draft carries the focus').toContain('Focus for this session: the Longhorn volume migration')
+
+  // A ready handoff's panel is up; a plain /refresh keeps it, so close it and ask again.
+  v = await $.ui.mount({ plugin: 'handoff', surface: 'terminal', component: 'AbovePrompt', props })
+  await v.press({ key: 'close' })
+  await $.command.run({ command: 'refresh', args: '' } as never)
+  v = await $.ui.mount({ plugin: 'handoff', surface: 'terminal', component: 'AbovePrompt', props })
+  await v.press({ key: 'refresh' })
+  await clock.advance(10_000)
+  expect(prompts[1] ?? '', 'no focus: none carried over').not.toContain('chose a focus')
+
+  const callTool = $.tool.call as unknown as (input: unknown) => Promise<unknown>
+  await callTool({ tool: 'mcp__handoff__refresh', tool_use_id: 'r1', focus: 'the DNS cutover' })
+  await $.turn.complete({ answer: '' } as never)
+  await clock.advance(10_000)
+  expect(prompts[2] ?? '', 'the tool focus reaches the fork prompt').toContain('"the DNS cutover"')
+})
+
 for (const surface of ['desktop', 'terminal'] as const) {
   test(`draws nothing of its own when switched off in /mods (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
     let switches = ''

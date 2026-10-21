@@ -56,6 +56,10 @@ let off = false
 let hidden = false
 // The offer was asked for (Show or /refresh): it stays whatever the token count.
 let forced = false
+// A focus for the next handoff: /refresh <focus> or the refresh tool's focus. Used once.
+let focus = ''
+// The focus of the last run, so Retry writes the same handoff.
+let lastAim = ''
 
 const switchesPath = ($: EngineInterface) => `${$.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
 
@@ -91,6 +95,7 @@ async function readSwitch($: EngineInterface) {
 // Hidden: an offer on screen goes; the steps and a finished handoff stay.
 async function dropOffer($: EngineInterface) {
   forced = false
+  focus = ''
   const p = await getPanel($)
   if (p?.phase === 'offer') await setPanel($, null)
 }
@@ -111,10 +116,10 @@ async function setHidden($: EngineInterface, value: boolean) {
 }
 
 // Brings the Refresh offer up now, whatever the token count.
-async function showOffer($: EngineInterface) {
+async function showOffer($: EngineInterface, replace = false) {
   const p = await getPanel($)
-  // Steps running, or a handoff ready or failed: that panel is already up.
-  if (busy || (p && p.phase !== 'offer')) return
+  // Steps running, or a handoff ready or failed: that panel is already up, unless a new focus replaces it.
+  if (busy || (p && p.phase !== 'offer' && !replace)) return
   const { context } = await $.session.usage()
   forced = true
   await setPanel($, { phase: 'offer', tokens: context.tokens ?? 0, steps: freshSteps(), tick: 0, file: '', words: 0, error: '', note: '' })
@@ -241,11 +246,14 @@ function gatherLinks(messages: SessionMessage[]) {
   return [...links].slice(-20)
 }
 
-function forkPrompt(cwd: string, g: Gathered) {
+function forkPrompt(cwd: string, g: Gathered, aim: string) {
   const list = (xs: string[]) => (xs.length ? xs.map(x => `- ${x}`).join('\n') : '- none found')
+  const aimed = aim
+    ? `\nThe user chose a focus for the next session: "${aim}". Build the goal, Files to open first and Next steps around it. Other threads from this chat get one line each under Where things stand, or nothing if they do not bear on the focus.\n`
+    : ''
   return `Write a handoff prompt for a fresh Claude Code session that continues this work. Do not call any tool. Reply with the prompt only: no preamble, no code fence around it.
-
-The reader starts with an empty context. It can open files on this machine, but it cannot see this chat. It loads CLAUDE.md, AGENTS.md and its memory index by itself, so do not repeat those.
+${aimed}
+The reader starts with an empty context. It can open files on this machine, but it cannot see this chat. It loads CLAUDE.md, AGENTS.md and its memory index by itself, so do not repeat those. Do not copy what already lives in a plan, PRD, ADR, issue, commit, diff or agent log: point to it by path or URL.
 
 Facts the handoff mod pulled from this transcript (check them against what you remember; drop what does not matter for the next step):
 Working directory: ${cwd}
@@ -260,7 +268,7 @@ Use this shape in plain, short English. Leave out a section that has nothing in 
 
 # Handoff: <the goal, in a few words>
 
-Continue work in \`${tilde(cwd)}\`. Goal: <what the user is working toward right now>.
+Continue work in \`${tilde(cwd)}\`. Goal: <${aim ? 'the focus above, as a goal' : 'what the user is working toward right now'}>.
 
 ## What the user asked for
 Every request in this chat, in order, with the user's own key words. Mark each one: done, in progress, or not started.
@@ -268,14 +276,20 @@ Every request in this chat, in order, with the user's own key words. Mark each o
 ## Where things stand
 What is done and checked, the key decisions and why, and what was tested and what was not.
 
+## Live-state claims
+Every claim about state that can change after this chat: a workload is running, a branch or PR exists, a commit is on origin/main, CI is green, a service answers, a version is deployed. Intent, decisions and next steps are not claims.
+| # | Claim | Status | Check to re-run | Evidence or why unverified |
+|---|---|---|---|---|
+Status is VERIFIED only when a check's output for it is in this chat: give the command and the trimmed output, and its time if the chat shows one. Anything inferred, recalled, told, or checked long ago and possibly changed since is UNVERIFIED, with the reason. Every row, VERIFIED too, gets a read-only command the next session can run as written; /pickup re-runs them all before it starts.
+
 ## Rules the user set
 Standing constraints and preferences given in this chat: words to avoid, things never to do, approval steps, tone.
 
 ## Files to open first
 - \`<path>\`: why it matters, in one line. Only files the next step needs, at most 15. Paths only; never copy file content.
 
-## Skills and tools to use
-- \`<skill, CLI or connector>\`: when to use it, and any trap found in this chat.
+## Suggested skills and tools
+- \`<skill, CLI or connector>\`: when to use it, and any trap found in this chat. Skills the next session should load first come first.
 
 ## Errors already solved
 - <the error>: <the fix>. So the next session does not hit them again.
@@ -284,9 +298,9 @@ Standing constraints and preferences given in this chat: words to avoid, things 
 Only data that exists nowhere on disk: ids, URLs, numbers and decisions that live only in this chat. Verbatim.
 
 ## Next steps
-1. The very next action, specific enough to start without asking a question.
+1. The very next action, specific enough to start without asking a question. Name any UNVERIFIED claim it builds on.
 
-Never write an API key, token or password; write where it lives instead (for example "in ~/.zshrc"). Keep it under 1,500 words.`
+Never write an API key, token or password; write where it lives instead (for example "in ~/.zshrc"). Keep it under 2,000 words.`
 }
 
 // Anything shaped like a secret is cut out before the handoff is saved or copied.
@@ -329,7 +343,7 @@ async function log($: EngineInterface, line: string) {
 
 // A plain handoff built from the transcript alone, saved before the model step,
 // so a failed or slow model call still leaves something to start from.
-function draftText(cwd: string, g: Gathered) {
+function draftText(cwd: string, g: Gathered, aim: string) {
   const asks = g.messages
     .filter(m => m.role === 'user' && m.text.trim() && !m.text.trim().startsWith('<'))
     .slice(-25)
@@ -338,7 +352,7 @@ function draftText(cwd: string, g: Gathered) {
   return `# Handoff draft (no model step)
 
 Continue work in \`${tilde(cwd)}\`. This draft was saved before the model wrote the full handoff. Read the requests below, open the files, then ask the user what is next.
-
+${aim ? `\nFocus for this session: ${aim}\n` : ''}
 ## What the user asked for (newest last)
 ${asks.join('\n') || '- none found'}
 
@@ -356,6 +370,9 @@ ${list(g.links)}
 async function run($: EngineInterface) {
   if (busy) return
   busy = true
+  const aim = focus
+  focus = ''
+  lastAim = aim
   let draftPath = ''
   const { context } = await $.session.usage()
   await setPanel($, { phase: 'working', tokens: context.tokens ?? 0, steps: freshSteps(), tick: 0, file: '', words: 0, error: '', note: '' })
@@ -382,16 +399,16 @@ async function run($: EngineInterface) {
     const g: Gathered = { messages, tools, files, ...found }
     await $.process.run(['mkdir', '-p', `${home}/.claude/handoffs`])
     draftPath = `${home}/.claude/handoffs/${await stamp($)}-draft.md`
-    const draft = redact(draftText(cwd, g))
+    const draft = redact(draftText(cwd, g, aim))
     await $.fs.write(draftPath, draft)
     handoffText = draft
     handoffPath = draftPath
-    await log($, `start ${short(context.tokens ?? 0)} ${messages.length} messages, draft ${tilde(draftPath)}`)
+    await log($, `start ${short(context.tokens ?? 0)} ${messages.length} messages, draft ${tilde(draftPath)}${aim ? `, focus "${aim.slice(0, 80)}"` : ''}`)
     const reply = await step(
       $,
       3,
       async () => {
-        const r = await $.model.fork({ prompt: forkPrompt(cwd, g) })
+        const r = await $.model.fork({ prompt: forkPrompt(cwd, g, aim) })
         writeMs = (await $.clock.now()) - writeStartedAt
         return r
       },
@@ -546,7 +563,8 @@ async function checkOffer($: EngineInterface) {
 async function close($: EngineInterface) {
   const p = await getPanel($)
   if (p?.phase === 'offer') {
-    // Hide on the offer: it stops popping up in every chat until Show or /refresh.
+    // Hide on the offer: it stops popping up in every chat until Show or /refresh, and drops its focus.
+    focus = ''
     await setHidden($, true)
     try {
       $.ui.toast('Refresh offer hidden. Type /refresh or open /mods to show it.')
@@ -576,18 +594,30 @@ export const register: Register = on => {
     $.clock.every(3000, () => {
       void poll($).catch(() => undefined)
     })
-    await $.command.register({ name: 'handoff', description: 'Write a handoff of this chat now, then copy it or start a new chat with it' })
+    // No /handoff: the mattpocock-skills plugin owns that name, and a refused register used to stop this whole start.
     try {
-      await $.command.register({ name: 'refresh', description: 'Show the Refresh panel now, to move this work to a fresh chat', immediate: true })
+      await $.command.register({
+        name: 'refresh',
+        description: 'Show the Refresh panel now, to move this work to a fresh chat; text after it is the next session focus',
+        argumentHint: '[focus for the next session]',
+        immediate: true,
+      })
     } catch (err) {
       await log($, `could not add /refresh: ${String(err)}`)
     }
-    await $.tool.register({
-      name: 'refresh',
-      description:
-        'Open the Refresh panel above the prompt: it writes a handoff of this whole chat (what was asked, done, decided, files to open, next steps) and offers Copy and Start new chat. Use when the user asks to refresh, hand off, or move this work to a new chat. It starts when your turn ends.',
-      inputSchema: { type: 'object', properties: {} },
-    })
+    try {
+      await $.tool.register({
+        name: 'refresh',
+        description:
+          'Open the Refresh panel above the prompt: it writes a handoff of this whole chat (what was asked, done, decided, files to open, next steps) and offers Copy and Start new chat. Use when the user asks to refresh, hand off, or move this work to a new chat. It starts when your turn ends. Pass focus when the user names what the next session should work on.',
+        inputSchema: {
+          type: 'object',
+          properties: { focus: { type: 'string', description: "What the next session should focus on, in the user's words. Leave out when the user named none." } },
+        },
+      })
+    } catch (err) {
+      await log($, `could not add the refresh tool: ${String(err)}`)
+    }
     const saved = await $.store.get(`snooze:${sid}`)
     if (typeof saved === 'number') snoozedTo = saved
     try {
@@ -621,23 +651,27 @@ export const register: Register = on => {
     return result
   })
 
-  on('command.run', { command: 'refresh' }, async $ => {
-    if (off) return { text: 'Handoff (Refresh) is off. Turn it on with /mods.' }
-    await setHidden($, false)
-    await showOffer($)
-    return { text: 'Refresh panel shown above the prompt. Press Hide on it, or use /mods, to hide it again.' }
-  })
+  const focusNote = () => (focus ? ` Focus for the next session: ${focus}` : '')
 
-  on('command.run', { command: 'handoff' }, async $ => {
+  on('command.run', { command: 'refresh' }, async ($, e) => {
     if (off) return { text: 'Handoff (Refresh) is off. Turn it on with /mods.' }
-    void run($).catch(() => undefined)
-    return { text: 'Writing the handoff. Watch the panel above the prompt.' }
+    if (busy) return { text: 'A handoff is being written now. Run /refresh again when it finishes.' }
+    focus = e.args.trim()
+    await setHidden($, false)
+    // A new focus replaces a finished or failed handoff's panel with a fresh offer.
+    await showOffer($, !!focus)
+    return { text: `Refresh panel shown above the prompt: press Refresh to write the handoff, or Hide.${focusNote()}` }
   })
 
   // One unfiltered hook: a typed tool matcher makes tsc recurse through the connector types.
   on('tool.call', async ($, e, next) => {
     if ((e.tool as string) !== 'mcp__handoff__refresh') return next(e)
-    if (!off) pending = true
+    if (!off) {
+      pending = true
+      const asked = (e as { focus?: unknown }).focus
+      // A call without a focus keeps one the user gave with /refresh.
+      if (typeof asked === 'string' && asked.trim()) focus = asked.trim()
+    }
     const said = off
       ? 'Handoff (Refresh) is off. Tell the user to turn it on with /mods.'
       : 'The Refresh panel opens above the prompt when this turn ends. Tell the user in one short line, then end your turn.'
@@ -651,6 +685,7 @@ export const register: Register = on => {
     return { element: e.element }
   })
   on('ui.press', { plugin: 'handoff', element: 'retry' }, async ($, e) => {
+    if (!busy) focus = lastAim
     void run($).catch(() => undefined)
     return { element: e.element }
   })
@@ -689,6 +724,7 @@ export const register: Register = on => {
             <Text>
               <Text color={ACCENT}>●</Text>
               <Text dimColor> Context at {short(p.tokens)}. Refresh moves this work to a new chat with a full handoff.</Text>
+              {focus ? <Text color={ACCENT}> Focus: {focus}</Text> : null}
             </Text>
             <Box flexDirection="row" gap={1}>
               <Button key="refresh" label="Refresh" variant="primary" onPress={noop} />
