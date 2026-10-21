@@ -56,18 +56,18 @@ function mockAll(on: On, w: World) {
     if (w.switches !== undefined && p.endsWith('/.claude/mods/switches.json')) w.files[p] = w.switches
   }
   on('fs.exists', async ($, e) => {
-    const p = (e as { path: string }).path
+    const p = (e as { path: string }).path.replace(/\\/g, '/')
     seed(p)
     return { value: p in w.files } as never
   })
   on('fs.read', async ($, e) => {
-    const p = (e as { path: string }).path
+    const p = (e as { path: string }).path.replace(/\\/g, '/')
     seed(p)
     if (!(p in w.files)) throw new Error(`ENOENT ${p}`)
     return { value: w.files[p] } as never
   })
   on('fs.write', async ($, e) => {
-    const { path, text } = e as { path: string; text: string }
+    const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
     w.files[path] = text
     return { value: undefined } as never
   })
@@ -183,7 +183,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await v3.press({ key: 'vault' })
     expect(w.asked.length, 'asked again after /reflect folder').toBe(2)
     expect(w.store.folder, 'typed path kept').toBe('/Users/test/notes/rules/')
-    expect('/Users/test/notes/rules/no-em-dashes-in-newsletters.md' in w.files, 'written to the typed path').toBe(true)
+    expect(Object.keys(w.files).some(k => k.endsWith('/Users/test/notes/rules/no-em-dashes-in-newsletters.md')), 'written to the typed path').toBe(true)
   })
 
   test(`rules_folder unset: cancelling the folder dialog saves nothing (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
@@ -215,7 +215,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await v.press({ key: 'vault' })
     expect(w.asked.length, 'never asked').toBe(0)
     expect(w.store.folder, 'nothing remembered').toBeUndefined()
-    expect('/Users/test/my-rules/no-em-dashes-in-newsletters.md' in w.files, 'written to rules_folder').toBe(true)
+    expect(Object.keys(w.files).some(k => k.endsWith('/Users/test/my-rules/no-em-dashes-in-newsletters.md')), 'written to rules_folder').toBe(true)
     const saved = await $.ui.mount({ plugin: 'reflect', surface, component: 'AbovePrompt', props })
     expect(await saved.find({ text: /\/Users\/test\/my-rules\/no-em-dashes-in-newsletters\.md/ }), 'saved line names the file').toBeDefined()
 

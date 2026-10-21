@@ -46,7 +46,7 @@ const HIDE_KEY = `${NAME}:hidden`
 let off = false
 let hidden = false
 
-const switchesPath = ($: EngineInterface) => `${$.plugin.root.split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
+const switchesPath = ($: EngineInterface) => `${$.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
 
 async function readSwitches($: EngineInterface): Promise<Record<string, unknown>> {
   const path = switchesPath($)
@@ -257,7 +257,9 @@ async function log($: EngineInterface, line: string) {
 // Reads which cache length this chat's replies were written with (5 min or 1 hour).
 async function detect($: EngineInterface) {
   if (!sid) return
-  const r = await $.process.run(['python3', `${$.plugin.root}/bin/ttl.py`, sid])
+  let r = await $.process.run(['python3', `${$.plugin.root}/bin/ttl.py`, sid])
+  // Windows installs often have only `python` (python3 may be the Store stub).
+  if (r.exitCode !== 0) r = await $.process.run(['python', `${$.plugin.root}/bin/ttl.py`, sid])
   const out = r.stdout.trim()
   if (out === '5m' || out === '1h') detected = out
   else if (r.exitCode !== 0) await log($, `ttl check failed: ${r.stderr.slice(0, 200)}`)
@@ -293,7 +295,7 @@ async function handoff($: EngineInterface) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     sid = await $.session.id()
-    home = $.plugin.root.split('/.claude/')[0] ?? ''
+    home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
     // The 60 s demo is for one chat only. Older versions saved it for every chat, so clear that.
     demo = false
     if ((await $.store.get('demo').catch(() => undefined)) === true) {

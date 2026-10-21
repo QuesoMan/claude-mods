@@ -25,7 +25,7 @@ const HIDE_KEY = `${NAME}:hidden`;
 const POLL_MS = 3000;
 const sw = { off: false, hidden: false, sid: "" };
 
-const homeOf = ($) => $.plugin.root.split("/.claude/")[0] || "";
+const homeOf = ($) => $.plugin.root.replace(/\\/g, "/").split("/.claude/")[0] || "";
 const switchesPath = ($) => `${homeOf($)}/.claude/mods/switches.json`;
 
 async function readSwitches($) {

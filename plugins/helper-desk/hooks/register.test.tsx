@@ -61,10 +61,10 @@ function rig(on: On, files: Record<string, string>) {
     return (<Box />) as never
   })
   on('turn.complete', async () => ({ text: '' }) as never)
-  on('fs.exists', async ($, e) => ({ value: keyOf(files, (e as { path: string }).path) !== undefined }) as never)
-  on('fs.read', async ($, e) => ({ value: files[keyOf(files, (e as { path: string }).path) ?? ''] ?? '' }) as never)
+  on('fs.exists', async ($, e) => ({ value: keyOf(files, (e as { path: string }).path.replace(/\\/g, '/')) !== undefined }) as never)
+  on('fs.read', async ($, e) => ({ value: files[keyOf(files, (e as { path: string }).path.replace(/\\/g, '/')) ?? ''] ?? '' }) as never)
   on('fs.write', async ($, e) => {
-    const { path, text } = e as { path: string; text: string }
+    const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
     files[path] = text
     return { value: undefined } as never
   })

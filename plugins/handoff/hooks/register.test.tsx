@@ -38,16 +38,16 @@ for (const surface of ['desktop', 'terminal'] as const) {
       return { value: { isAnswered: true, text: `${HANDOFF}\nkey sk-abcdefghijklmnopqrstuvwxyz`, usage: {} } } as never
     })
     on('fs.exists', async ($, e) => {
-      const p = (e as { path: string }).path
+      const p = (e as { path: string }).path.replace(/\\/g, '/')
       return { value: p.endsWith('.md') && !p.includes('/tmp/') ? true : p in files } as never
     })
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
     on('fs.read', async ($, e) => {
-      const p = (e as { path: string }).path
+      const p = (e as { path: string }).path.replace(/\\/g, '/')
       if (p.endsWith('/pet.json')) return { value: JSON.stringify({ at: clock.now() }) } as never
       if (p.endsWith('.done')) return { value: 'Started a new chat.' } as never
       return { value: files[p] ?? '' } as never
@@ -56,6 +56,11 @@ for (const surface of ['desktop', 'terminal'] as const) {
       const { argv, init } = e as { argv: readonly string[]; init?: { stdin?: string } }
       runs.push({ argv, stdin: init?.stdin })
       return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    })
+    const copies: string[] = []
+    on('ui.copy', async ($, e) => {
+      copies.push((e as { text: string }).text)
+      return { value: { isCopied: true } } as never
     })
     on('store.get', async ($, e) => ({ value: store[(e as { key: string }).key] }) as never)
     on('store.set', async ($, e) => {
@@ -103,8 +108,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(forkPrompt, 'tmp paths dropped').not.toContain('/tmp/x')
 
     await v.press({ key: 'copy' })
-    const copied = runs.find(r => r.argv[0] === 'pbcopy')
-    expect(copied?.stdin ?? '', 'copy sends the handoff to pbcopy').toContain('# Handoff: Build the refresh mod')
+    expect(copies[0] ?? '', 'copy sends the handoff to the clipboard').toContain('# Handoff: Build the refresh mod')
 
     await v.press({ key: 'start' })
     await clock.advance(2_000)
@@ -136,15 +140,15 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('session.messages', async () => ({ value: [{ role: 'user', text: 'Write the newsletter', toolUses: [] }] }) as never)
     on('model.fork', async () => ({ value: { isAnswered: false, reason: 'api-error', status: 529 } }) as never)
     on('fs.exists', async ($, e) => {
-      const p = (e as { path: string }).path
+      const p = (e as { path: string }).path.replace(/\\/g, '/')
       return { value: p.endsWith('/.request-sid') ? requested : p in files } as never
     })
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
-    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path] ?? '' }) as never)
+    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
     on('process.run', async ($, e) => {
       const { argv } = e as { argv: readonly string[] }
       if (argv[0] === 'rm' && argv.some(a => a.endsWith('/.request-sid'))) requested = false
@@ -175,7 +179,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
 for (const surface of ['desktop', 'terminal'] as const) {
   test(`draws nothing of its own when switched off in /mods (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
     let switches = ''
-    const isSwitches = (e: unknown) => (e as { path: string }).path.endsWith('/.claude/mods/switches.json')
+    const isSwitches = (e: unknown) => (e as { path: string }).path.replace(/\\/g, '/').endsWith('/.claude/mods/switches.json')
     on('session.start', async ($, e) => ({ cwd: e.cwd }) as never)
     on('command.register', async () => ({ value: undefined }) as never)
     on('tool.register', async () => ({ value: { tool: 'mcp__handoff__refresh' } }) as never)
@@ -227,10 +231,10 @@ function rig(on: On, files: Record<string, string>, tokens: { value: number }) {
   const clock = mock.clock(on, { now: 1_000_000 })
   on('session.id', async () => ({ value: 'sid' }) as never)
   on('session.usage', async () => ({ value: { context: { tokens: tokens.value, window: 1_000_000 } } }) as never)
-  on('fs.exists', async ($, e) => ({ value: keyOf((e as { path: string }).path) !== undefined }) as never)
-  on('fs.read', async ($, e) => ({ value: files[keyOf((e as { path: string }).path) ?? ''] ?? '' }) as never)
+  on('fs.exists', async ($, e) => ({ value: keyOf((e as { path: string }).path.replace(/\\/g, '/')) !== undefined }) as never)
+  on('fs.read', async ($, e) => ({ value: files[keyOf((e as { path: string }).path.replace(/\\/g, '/')) ?? ''] ?? '' }) as never)
   on('fs.write', async ($, e) => {
-    const { path, text } = e as { path: string; text: string }
+    const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
     files[path.endsWith(SW) ? SW : path] = text
     return { value: undefined } as never
   })

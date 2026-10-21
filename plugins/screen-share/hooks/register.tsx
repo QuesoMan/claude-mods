@@ -31,7 +31,7 @@ let off = false
 async function readSwitch($: EngineInterface) {
   let now = false
   try {
-    const path = `${$.plugin.root.split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
+    const path = `${$.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
     if (await $.fs.exists(path)) {
       const json = JSON.parse(String(await $.fs.read(path))) as Record<string, unknown>
       now = json[NAME] === false
@@ -121,7 +121,7 @@ export const register: Register = on => {
     })
     try {
       sid = await $.session.id()
-      home = $.plugin.root.split('/.claude/')[0] ?? ''
+      home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
       await readSwitch($).catch(() => undefined)
       $.clock.every(3000, () => {
         void readSwitch($).catch(() => undefined)

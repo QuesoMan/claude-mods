@@ -937,7 +937,7 @@ ${body}
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    home = $.plugin.root.split('/.claude/')[0] ?? ''
+    home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
     sessionId = await $.session.id().catch(() => '')
     await $.command.register({ name: 'helpers', description: 'Show the Helper Desk: the task progress bar and one live card per subagent', immediate: true })
     await $.tool.register({

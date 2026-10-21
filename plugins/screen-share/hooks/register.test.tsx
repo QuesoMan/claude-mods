@@ -164,7 +164,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     let switches = ''
     const statuses: (string | undefined)[] = []
     const seen: Record<string, unknown> = {}
-    const isSwitches = (e: unknown) => (e as { path: string }).path.endsWith('/.claude/mods/switches.json')
+    const isSwitches = (e: unknown) => (e as { path: string }).path.replace(/\\/g, '/').endsWith('/.claude/mods/switches.json')
     on('session.start', async ($, e) => ({ cwd: e.cwd }) as never)
     on('session.id', async () => ({ value: 'sid' }) as never)
     on('command.register', async () => ({ value: { command: 'screen-share' } }) as never)

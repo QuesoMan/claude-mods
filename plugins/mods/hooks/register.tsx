@@ -39,7 +39,7 @@ let cache: { at: number; rows: Row[] } | null = null
 
 const NOT_SWITCHABLE = 'Not switchable yet. Ask Claude: add the /mods switch to this mod.'
 
-const homeOf = ($: EngineInterface) => $.plugin.root.split('/.claude/')[0] ?? ''
+const homeOf = ($: EngineInterface) => $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
 const switchesPath = ($: EngineInterface) => `${homeOf($)}/.claude/mods/switches.json`
 
 function cut(s: string, n: number) {
@@ -157,7 +157,7 @@ async function cacheDirs($: EngineInterface, home: string) {
   return out
 }
 
-// CLAUDE_CODE_PLUGIN_DIRS: folders split by ':', '~' meaning the home folder.
+// CLAUDE_CODE_PLUGIN_DIRS: folders split by ':' (';' on Windows, where ':' is in C:\), '~' meaning the home folder.
 async function envDirs($: EngineInterface) {
   let raw: string | undefined
   try {
@@ -167,9 +167,10 @@ async function envDirs($: EngineInterface) {
   }
   if (!raw) return []
   const home = homeOf($)
+  const sep = (await $.env.get('OS')) === 'Windows_NT' ? ';' : ':'
   return raw
-    .split(':')
-    .map(x => x.trim())
+    .split(sep)
+    .map(x => x.trim().replace(/\\/g, '/'))
     .filter(Boolean)
     .map(x => (x === '~' ? home : x.startsWith('~/') ? `${home}${x.slice(1)}` : x))
     .map(x => x.replace(/\/+$/, ''))

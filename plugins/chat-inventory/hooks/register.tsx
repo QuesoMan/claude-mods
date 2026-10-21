@@ -600,7 +600,7 @@ const KNOWN_KEYS = [...new Set([...Object.keys(LOGOS), ...[...CONNECTOR_NAMES, .
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    home = $.plugin.root.split('/.claude/')[0] ?? ''
+    home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
     await $.command.register({ name: 'inventory', description: 'Show the connectors, files and skills this chat used', immediate: true })
     await readSwitch($)
     if (!switchTimer)

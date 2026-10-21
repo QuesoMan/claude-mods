@@ -17,14 +17,14 @@ for (const surface of ['desktop', 'terminal'] as const) {
       return { value: { isPlaced: true } } as never
     })
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
-    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in files }) as never)
+    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
     on('fs.read', async ($, e) => {
-      const path = (e as { path: string }).path
+      const path = (e as { path: string }).path.replace(/\\/g, '/')
       if (!(path in files)) throw new Error(`ENOENT ${path}`)
       return { value: files[path] } as never
     })
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
@@ -82,14 +82,14 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('command.register', async () => ({ value: undefined }) as never)
     mock.clock(on, { now: new Date(2026, 9, 15, 21, 0).getTime() })
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
-    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in files }) as never)
+    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
     on('fs.read', async ($, e) => {
-      const path = (e as { path: string }).path
+      const path = (e as { path: string }).path.replace(/\\/g, '/')
       if (!(path in files)) throw new Error(`ENOENT ${path}`)
       return { value: files[path] } as never
     })
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
@@ -120,14 +120,14 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('command.register', async () => ({ value: undefined }) as never)
     mock.clock(on, { now: new Date(2026, 9, 15, 21, 0).getTime() })
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
-    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in files }) as never)
+    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
     on('fs.read', async ($, e) => {
-      const path = (e as { path: string }).path
+      const path = (e as { path: string }).path.replace(/\\/g, '/')
       if (!(path in files)) throw new Error(`ENOENT ${path}`)
       return { value: files[path] } as never
     })
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
@@ -202,23 +202,23 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
     on('fs.exists', async ($, e) => {
-      const path = (e as { path: string }).path
+      const path = (e as { path: string }).path.replace(/\\/g, '/')
       return { value: path in files || onDisk(path) !== undefined } as never
     })
     on('fs.read', async ($, e) => {
-      const path = (e as { path: string }).path
+      const path = (e as { path: string }).path.replace(/\\/g, '/')
       if (path in files) return { value: files[path] } as never
       const k = onDisk(path)
       if (k === undefined) throw new Error(`ENOENT ${path}`)
       return { value: disk[k] } as never
     })
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
     on('fs.list', async ($, e) => {
-      const path = ((e as { path?: string }).path ?? '').replace(/\/+$/, '')
+      const path = ((e as { path?: string }).path ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
       const dir = Object.keys(dirs).find(k => path.endsWith(k))
       if (dir) return { value: (dirs[dir] ?? []).map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })) } as never
       const names = [...new Set(Object.keys(disk).filter(k => path.endsWith(k.slice(0, k.lastIndexOf('/')))).map(k => k.slice(k.lastIndexOf('/') + 1)))]

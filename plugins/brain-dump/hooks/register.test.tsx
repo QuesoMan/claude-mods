@@ -40,10 +40,10 @@ for (const surface of ['desktop', 'terminal'] as const) {
       store[key] = value
       return { value: undefined } as never
     })
-    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in files }) as never)
-    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path] ?? '' }) as never)
+    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
+    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
@@ -121,7 +121,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     let switches = ''
     let asks = 0
     const passed: string[] = []
-    const isSwitches = (e: unknown) => (e as { path: string }).path.endsWith('/.claude/mods/switches.json')
+    const isSwitches = (e: unknown) => (e as { path: string }).path.replace(/\\/g, '/').endsWith('/.claude/mods/switches.json')
     on('session.start', async ($, e) => ({ cwd: e.cwd }) as never)
     on('command.register', async () => ({ value: undefined }) as never)
     const clock = mock.clock(on, { now: 0 })
@@ -172,10 +172,10 @@ function rig(on: On, replies: string[], answers: Record<string, string | null>):
   on('command.register', async () => ({ value: undefined }) as never)
   on('store.get', async () => ({ value: undefined }) as never)
   on('store.set', async () => ({ value: undefined }) as never)
-  on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in r.files }) as never)
-  on('fs.read', async ($, e) => ({ value: r.files[(e as { path: string }).path] ?? '' }) as never)
+  on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in r.files }) as never)
+  on('fs.read', async ($, e) => ({ value: r.files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
   on('fs.write', async ($, e) => {
-    const { path, text } = e as { path: string; text: string }
+    const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
     r.files[path] = text
     return { value: undefined } as never
   })

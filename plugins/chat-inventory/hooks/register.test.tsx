@@ -40,10 +40,10 @@ function setup(on: On, files: Record<string, string>, opened: string[], runs: st
       },
     }) as never,
   )
-  on('fs.exists', async ($, e) => ({ value: disk((e as { path: string }).path) in files }) as never)
-  on('fs.read', async ($, e) => ({ value: files[disk((e as { path: string }).path)] ?? '' }) as never)
+  on('fs.exists', async ($, e) => ({ value: disk((e as { path: string }).path.replace(/\\/g, '/')) in files }) as never)
+  on('fs.read', async ($, e) => ({ value: files[disk((e as { path: string }).path.replace(/\\/g, '/'))] ?? '' }) as never)
   on('fs.write', async ($, e) => {
-    const { path, text } = e as { path: string; text: string }
+    const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
     files[disk(path)] = text
     return { value: undefined } as never
   })

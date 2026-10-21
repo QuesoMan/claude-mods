@@ -57,7 +57,7 @@ let hidden = false
 // The offer was asked for (Show or /refresh): it stays whatever the token count.
 let forced = false
 
-const switchesPath = ($: EngineInterface) => `${$.plugin.root.split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
+const switchesPath = ($: EngineInterface) => `${$.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
 
 async function readSwitches($: EngineInterface): Promise<Record<string, unknown>> {
   const path = switchesPath($)
@@ -451,8 +451,14 @@ async function note($: EngineInterface, text: string) {
 
 async function copy($: EngineInterface) {
   if (!handoffText) return
-  const r = await $.process.run(['pbcopy'], { stdin: handoffText })
-  await note($, r.exitCode === 0 ? 'Copied. Paste it into a new chat with ⌘V.' : 'Copy failed. Use Open file instead.')
+  const r = await $.ui.copy({ text: handoffText })
+  await note($, r.isCopied ? 'Copied. Paste it into a new chat.' : 'Copy failed. Use Open file instead.')
+}
+
+// Windows has no `open`; rundll32 hands the file or link to its default app without cmd's parsing.
+async function openTarget($: EngineInterface, target: string) {
+  if ((await $.env.get('OS')) !== 'Windows_NT') return $.process.run(['open', target])
+  return $.process.run(['rundll32', 'url.dll,FileProtocolHandler', target.includes('://') ? target : target.replace(/\//g, '\\')])
 }
 
 async function petAlive($: EngineInterface) {
@@ -490,7 +496,7 @@ async function startNew($: EngineInterface) {
     return
   }
   const url = `claude://code/new?q=${encodeURIComponent(handoffText)}`
-  const r = await $.process.run(['open', url])
+  const r = await openTarget($, url)
   await note($, r.exitCode === 0 ? 'A new chat is filled in with the handoff. Press Return there to start it.' : 'The new chat did not open. Use Copy handoff prompt instead.')
 }
 
@@ -556,7 +562,7 @@ function bar(progress: number, status: Step['status']) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     sid = await $.session.id()
-    home = $.plugin.root.split('/.claude/')[0] ?? ''
+    home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
     petDir = `${home}/.claude/pet`
     await poll($).catch(() => undefined)
     $.clock.every(3000, () => {
@@ -649,7 +655,7 @@ export const register: Register = on => {
     return { element: e.element }
   })
   on('ui.press', { plugin: 'handoff', element: 'open' }, async ($, e) => {
-    if (handoffPath) await $.process.run(['open', handoffPath])
+    if (handoffPath) await openTarget($, handoffPath)
     return { element: e.element }
   })
   on('ui.press', { plugin: 'handoff', element: 'close' }, async ($, e) => {

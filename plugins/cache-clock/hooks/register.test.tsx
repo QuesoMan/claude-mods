@@ -12,10 +12,10 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('session.id', async () => ({ value: 'sid' }) as never)
     on('session.usage', async () => ({ value: { context: { tokens: 182_000, window: 1_000_000 } } }) as never)
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '5m\n', stderr: '' } }) as never)
-    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in files }) as never)
-    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path] ?? '' }) as never)
+    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
+    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
@@ -78,7 +78,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
   test(`clearing the hidden flag draws the clock again (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
     const files: Record<string, string> = {}
     let flag = JSON.stringify({ 'cache-clock:hidden': true })
-    const isSwitches = (e: unknown) => (e as { path: string }).path.endsWith('/.claude/mods/switches.json')
+    const isSwitches = (e: unknown) => (e as { path: string }).path.replace(/\\/g, '/').endsWith('/.claude/mods/switches.json')
     on('session.start', async ($, e) => ({ cwd: e.cwd }) as never)
     on('turn.start', async () => ({}) as never)
     on('command.register', async () => ({ value: undefined }) as never)
@@ -86,10 +86,10 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('session.id', async () => ({ value: 'sid' }) as never)
     on('session.usage', async () => ({ value: { context: { tokens: 182_000, window: 1_000_000 } } }) as never)
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '5m\n', stderr: '' } }) as never)
-    on('fs.exists', async ($, e) => ({ value: isSwitches(e) ? flag !== '' : (e as { path: string }).path in files }) as never)
-    on('fs.read', async ($, e) => ({ value: isSwitches(e) ? flag : (files[(e as { path: string }).path] ?? '') }) as never)
+    on('fs.exists', async ($, e) => ({ value: isSwitches(e) ? flag !== '' : (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
+    on('fs.read', async ($, e) => ({ value: isSwitches(e) ? flag : (files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '') }) as never)
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       if (isSwitches(e)) flag = text
       else files[path] = text
       return { value: undefined } as never
@@ -133,7 +133,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
 for (const surface of ['desktop', 'terminal'] as const) {
   test(`draws nothing of its own when switched off in /mods (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
     let switches = ''
-    const isSwitches = (e: unknown) => (e as { path: string }).path.endsWith('/.claude/mods/switches.json')
+    const isSwitches = (e: unknown) => (e as { path: string }).path.replace(/\\/g, '/').endsWith('/.claude/mods/switches.json')
     on('session.start', async ($, e) => ({ cwd: e.cwd }) as never)
     on('turn.start', async () => ({}) as never)
     on('command.register', async () => ({ value: undefined }) as never)
@@ -180,10 +180,10 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('session.id', async () => ({ value: 'sid' }) as never)
     on('session.usage', async () => ({ value: { context: { tokens: 182_000, window: 1_000_000 } } }) as never)
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '5m\n', stderr: '' } }) as never)
-    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in files }) as never)
-    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path] ?? '' }) as never)
+    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
+    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
@@ -264,10 +264,10 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('session.id', async () => ({ value: 'sid' }) as never)
     on('session.usage', async () => ({ value: { context: { tokens: 182_000, window: 1_000_000 } } }) as never)
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '5m\n', stderr: '' } }) as never)
-    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path in files }) as never)
-    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path] ?? '' }) as never)
+    on('fs.exists', async ($, e) => ({ value: (e as { path: string }).path.replace(/\\/g, '/') in files }) as never)
+    on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
     on('fs.write', async ($, e) => {
-      const { path, text } = e as { path: string; text: string }
+      const { path: rawPath, text } = e as { path: string; text: string }; const path = rawPath.replace(/\\/g, '/')
       files[path] = text
       return { value: undefined } as never
     })
@@ -337,7 +337,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     let switches = ''
     const toasts: string[] = []
     let forks = 0
-    const isSwitches = (e: unknown) => (e as { path: string }).path.endsWith('/.claude/mods/switches.json')
+    const isSwitches = (e: unknown) => (e as { path: string }).path.replace(/\\/g, '/').endsWith('/.claude/mods/switches.json')
     on('session.start', async ($, e) => ({ cwd: e.cwd }) as never)
     on('turn.start', async () => ({}) as never)
     on('command.register', async () => ({ value: undefined }) as never)

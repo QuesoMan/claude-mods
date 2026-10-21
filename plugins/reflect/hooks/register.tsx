@@ -50,7 +50,7 @@ let off = false
 async function readSwitch($: EngineInterface) {
   let now = false
   try {
-    const path = `${$.plugin.root.split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
+    const path = `${$.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''}/.claude/mods/switches.json`
     if (await $.fs.exists(path)) {
       const json = JSON.parse(String(await $.fs.read(path))) as Record<string, unknown>
       now = json[NAME] === false
@@ -329,7 +329,7 @@ async function fail($: EngineInterface, b: Band, what: string, err: unknown) {
 export const register: Register = (on, options) => {
   configured = typeof options.rules_folder === 'string' ? options.rules_folder : ''
   on('session.start', async ($, e, next) => {
-    home = $.plugin.root.split('/.claude/')[0] ?? ''
+    home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
     await $.command.register({ name: 'reflect', description: 'Turn reflect on or off. /reflect folder forgets the remembered rules folder', argumentHint: '[folder]' })
     const saved = await $.store.get('enabled')
     enabled = saved !== false
@@ -426,7 +426,8 @@ export const register: Register = (on, options) => {
 
   on('ui.press', { plugin: 'reflect', element: 'open' }, async ($, e) => {
     const b = await getBand($)
-    if (b?.path) await $.process.run(['open', b.path])
+    // Windows has no `open`; rundll32 hands the file to its default app.
+    if (b?.path) await $.process.run((await $.env.get('OS')) === 'Windows_NT' ? ['rundll32', 'url.dll,FileProtocolHandler', b.path.replace(/\//g, '\\')] : ['open', b.path])
     return { element: e.element }
   })
 
