@@ -28,7 +28,7 @@ const MODS: readonly Mod[] = [
   { name: 'screen-share', title: 'Screen-Share Mode', what: 'Hides emails, phones and amounts on screen', pane: false, hide: false, ask: false, tip: '/screen-share to hide private data' },
   { name: 'brain-dump', title: 'Brain-Dump Shaper', what: 'Turns long rambling prompts into clear briefs', pane: false, hide: false, ask: false, tip: '' },
   { name: 'reflect', title: 'Reflect', what: 'Saves your corrections as lasting rules', pane: false, hide: false, ask: false, tip: '' },
-  { name: 'helper-desk', title: 'Helper Desk', what: 'Task progress bar above the prompt, plus a card per subagent', pane: true, hide: true, ask: true, tip: '/helpers to open' },
+  { name: 'helper-desk', title: 'Helper Desk', what: 'Task list above the prompt, plus a card per subagent', pane: true, hide: true, ask: true, tip: '/helpers to open' },
   { name: 'chat-inventory', title: 'Chat Inventory', what: 'Connectors, files and skills this chat used', pane: true, hide: true, ask: true, tip: '/inventory to open' },
   // A status-line script, not a hooks mod, so the scan cannot find it; it reads switches.json itself.
   { name: 'cache-bar', title: 'Cache Bar', what: 'Prompt-cache expiry bar under the status line', pane: false, hide: false, ask: false, tip: '' },
@@ -321,8 +321,10 @@ export const register: Register = on => {
     } catch (err) {
       await log($, 'scan on open', err)
     }
-    await $.ui.open({ id: PANE, title: TITLE })
-    return { text: 'Opened the Mods pane.' }
+    // focus: brings the pane to the front even when another pane's tab is showing, and hands it the keys,
+    // so Tab walks the buttons and Enter presses one; Esc goes back to the prompt.
+    await $.ui.open({ id: PANE, title: TITLE, focus: true })
+    return { text: 'Opened the Mods pane. Click a button, or Tab to it and press Enter (ctrl+x tab gives the pane the keys); Esc goes back to the prompt.' }
   })
 
   // Presses come here, not to onPress: a closure lives for one drawing only.

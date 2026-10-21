@@ -526,7 +526,8 @@ async function readSwitch($: EngineInterface) {
       next = false
       nowHidden = hidden
     }
-    if (nowHidden && !hidden) await $.ui.close({ id: PANE }).catch(() => undefined)
+    // Off or hidden, the pane goes; /mods Open or /inventory brings it back once on and shown.
+    if ((nowHidden && !hidden) || (next && !off)) await $.ui.close({ id: PANE }).catch(() => undefined)
     hidden = nowHidden
     if (next !== off) {
       off = next
