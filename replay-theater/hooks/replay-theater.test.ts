@@ -8,11 +8,7 @@ test('replay-theater registers /replay and reports when there is nothing to repl
     registered = e as { name?: string }
     return { value: { command: 'replay' } } as never
   })
-  const toasts: string[] = []
-  on('ui.toast', async ($, e) => {
-    toasts.push(String((e as { text?: string }).text ?? e))
-    return { value: undefined } as never
-  })
+  on('ui.toast', async () => ({ value: undefined }) as never)
   const clock = mock.clock(on, { now: 0 })
 
   await $.session.start({ source: 'startup', cwd: '/Users/test/project', surface: 'terminal', isInteractive: true } as never)
