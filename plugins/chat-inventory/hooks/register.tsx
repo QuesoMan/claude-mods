@@ -192,6 +192,12 @@ const clockTime = (ms: number) => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// $.fs has no delete, and Windows has no rm outside Git Bash: del through cmd there.
+async function removeFile($: EngineInterface, path: string) {
+  const windows = (await $.env.get('OS')) === 'Windows_NT'
+  await $.process.run(windows ? ['cmd', '/c', 'del', '/f', '/q', path.replace(/\//g, '\\')] : ['rm', '-f', path])
+}
+
 async function logError($: EngineInterface, where: string, err: unknown) {
   try {
     const path = `${home}/.claude/mods-logs/${PLUGIN}.log`
@@ -199,7 +205,7 @@ async function logError($: EngineInterface, where: string, err: unknown) {
     try {
       old = String(await $.fs.read(path))
     } catch {
-      await $.process.run(['mkdir', '-p', `${home}/.claude/mods-logs`])
+      // No log yet: $.fs.write below makes it and its folder.
     }
     const line = `${new Date(await $.clock.now()).toISOString()} ${where}: ${String(err instanceof Error ? err.message : err)}\n`
     await $.fs.write(path, old + line)
@@ -537,7 +543,7 @@ async function readSwitch($: EngineInterface) {
     const sid = await $.session.id()
     const req = `${home}/.claude/mods/.open-${NAME}-${sid}`
     if (await $.fs.exists(req)) {
-      await $.process.run(['rm', '-f', req])
+      await removeFile($, req)
       if (!off) await openPane($)
     }
   } catch (err) {
@@ -551,7 +557,6 @@ async function setHidden($: EngineInterface, value: boolean) {
     const json = await readSwitches($)
     if (value) json[HIDE_KEY] = true
     else delete json[HIDE_KEY]
-    await $.process.run(['mkdir', '-p', `${home}/.claude/mods`])
     await $.fs.write(switchesPath(), `${JSON.stringify(json, null, 2)}\n`)
   } catch (err) {
     await logError($, 'save hidden', err)

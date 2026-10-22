@@ -52,6 +52,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
       if (p.endsWith('.done')) return { value: 'Started a new chat.' } as never
       return { value: files[p] ?? '' } as never
     })
+    on('env.get', async () => ({ value: 'Windows_NT' }) as never)
     on('process.run', async ($, e) => {
       const { argv, init } = e as { argv: readonly string[]; init?: { stdin?: string } }
       runs.push({ argv, stdin: init?.stdin })
@@ -149,9 +150,10 @@ for (const surface of ['desktop', 'terminal'] as const) {
       return { value: undefined } as never
     })
     on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
+    on('env.get', async () => ({ value: 'Windows_NT' }) as never)
     on('process.run', async ($, e) => {
       const { argv } = e as { argv: readonly string[] }
-      if (argv[0] === 'rm' && argv.some(a => a.endsWith('/.request-sid'))) requested = false
+      if (['rm', 'cmd'].includes(argv[0] ?? '') && argv.some(a => a.replace(/\\/g, '/').endsWith('/.request-sid'))) requested = false
       return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
     })
     on('store.get', async () => ({ value: undefined }) as never)
@@ -198,6 +200,7 @@ test('/refresh <focus> and the refresh tool focus point the handoff; the focus i
     return { value: undefined } as never
   })
   on('fs.read', async ($, e) => ({ value: files[(e as { path: string }).path.replace(/\\/g, '/')] ?? '' }) as never)
+  on('env.get', async () => ({ value: 'Windows_NT' }) as never)
   on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
   on('store.get', async () => ({ value: undefined }) as never)
   on('store.set', async () => ({ value: undefined }) as never)
@@ -249,6 +252,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     on('fs.exists', async ($, e) => ({ value: isSwitches(e) && switches !== '' }) as never)
     on('fs.read', async ($, e) => ({ value: isSwitches(e) ? switches : '' }) as never)
     on('fs.write', async () => ({ value: undefined }) as never)
+    on('env.get', async () => ({ value: 'Windows_NT' }) as never)
     on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
     on('store.get', async () => ({ value: undefined }) as never)
     on('store.set', async () => ({ value: undefined }) as never)
@@ -298,9 +302,10 @@ function rig(on: On, files: Record<string, string>, tokens: { value: number }) {
     files[path.endsWith(SW) ? SW : path] = text
     return { value: undefined } as never
   })
+  on('env.get', async () => ({ value: 'Windows_NT' }) as never)
   on('process.run', async ($, e) => {
     const { argv } = e as { argv: readonly string[] }
-    const hit = argv[0] === 'rm' ? keyOf(argv[argv.length - 1] ?? '') : undefined
+    const hit = ['rm', 'cmd'].includes(argv[0] ?? '') ? keyOf((argv[argv.length - 1] ?? '').replace(/\\/g, '/')) : undefined
     if (hit) delete files[hit]
     return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
   })

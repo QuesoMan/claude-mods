@@ -60,10 +60,15 @@ async function setHidden($, value) {
     const json = await readSwitches($).catch(() => ({}));
     if (value) json[HIDE_KEY] = true;
     else delete json[HIDE_KEY];
-    await $.process.run(["mkdir", "-p", `${homeOf($)}/.claude/mods`]);
     await $.fs.write(switchesPath($), `${JSON.stringify(json, null, 2)}\n`);
   } catch { /* the in-memory flag still changes */ }
   sw.hidden = value;
+}
+
+// $.fs has no delete, and Windows has no rm outside Git Bash: del through cmd there.
+async function removeFile($, path) {
+  const windows = (await $.env.get("OS")) === "Windows_NT";
+  await $.process.run(windows ? ["cmd", "/c", "del", "/f", "/q", path.replace(/\//g, "\\")] : ["rm", "-f", path]);
 }
 
 // The /mods switchboard asks for the pane by leaving an empty file for this chat.
@@ -72,7 +77,7 @@ async function checkOpen($) {
   const path = `${homeOf($)}/.claude/mods/.open-${NAME}-${sw.sid}`;
   try {
     if (!(await $.fs.exists(path))) return;
-    await $.process.run(["rm", "-f", path]);
+    await removeFile($, path);
     if (sw.off) return;
     const opened = await openReplay($);
     if (!opened) $.ui.toast("Replay Theater: no edits in the last turn yet.");

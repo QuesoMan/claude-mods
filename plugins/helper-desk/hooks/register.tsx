@@ -291,7 +291,6 @@ async function log($: EngineInterface, line: string) {
     const path = `${dir}/${NAME}.log`
     let old = ''
     if (await $.fs.exists(path).catch(() => false)) old = String(await $.fs.read(path))
-    else await $.process.run(['mkdir', '-p', dir])
     await $.fs.write(path, `${old}${new Date().toISOString()} ${line}\n`)
   } catch {
     // Logging must never break the session.
@@ -492,7 +491,6 @@ async function setHidden($: EngineInterface, value: boolean) {
     const json = await readSwitches($)
     if (value) json[HIDE_KEY] = true
     else delete json[HIDE_KEY]
-    await $.process.run(['mkdir', '-p', `${home}/.claude/mods`])
     await $.fs.write(switchesPath(), `${JSON.stringify(json, null, 2)}\n`)
   } catch (err) {
     await log($, `save hidden: ${String(err)}`)
@@ -507,11 +505,17 @@ async function openPane($: EngineInterface) {
   await $.ui.open({ id: PANE, title: TITLE })
 }
 
+// $.fs has no delete, and Windows has no rm outside Git Bash: del through cmd there.
+async function removeFile($: EngineInterface, path: string) {
+  const windows = (await $.env.get('OS')) === 'Windows_NT'
+  await $.process.run(windows ? ['cmd', '/c', 'del', '/f', '/q', path.replace(/\//g, '\\')] : ['rm', '-f', path])
+}
+
 async function checkOpen($: EngineInterface) {
   if (!sessionId) return
   const path = `${home}/.claude/mods/.open-${NAME}-${sessionId}`
   if (!(await $.fs.exists(path).catch(() => false))) return
-  await $.process.run(['rm', '-f', path])
+  await removeFile($, path)
   if (!off) await openPane($)
 }
 
@@ -581,7 +585,6 @@ function withNudge<R>(r: R): R {
   const had = (r as { context?: readonly string[] }).context ?? []
   return { ...r, context: [...had, note] }
 }
-let stateDirMade = false
 
 const planPath = () => `${home}/.claude/mods-state/plan-${sessionId}.json`
 const doneCount = (steps: { status: PlanStatus }[]) => steps.filter(st => st.status === 'completed').length
@@ -590,10 +593,6 @@ const isStatus = (v: unknown): v is PlanStatus => typeof v === 'string' && (STAT
 async function writePlan($: EngineInterface) {
   if (!plan || !sessionId || !home) return
   try {
-    if (!stateDirMade) {
-      await $.process.run(['mkdir', '-p', `${home}/.claude/mods-state`])
-      stateDirMade = true
-    }
     const body = {
       title: plan.title,
       steps: plan.steps.map(st => ({ text: st.text, status: st.status, ...(st.doneAt ? { doneAt: st.doneAt } : {}) })),

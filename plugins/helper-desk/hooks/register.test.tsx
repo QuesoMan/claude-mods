@@ -68,10 +68,11 @@ function rig(on: On, files: Record<string, string>) {
     files[path] = text
     return { value: undefined } as never
   })
+  on('env.get', async () => ({ value: 'Windows_NT' }) as never)
   on('process.run', async ($, e) => {
     const argv = (e as { argv?: string[]; command?: string[] }).argv ?? (e as { command?: string[] }).command ?? []
     ran.push(argv)
-    const hit = argv[0] === 'rm' ? keyOf(files, argv[argv.length - 1]!) : undefined
+    const hit = ['rm', 'cmd'].includes(argv[0] ?? '') ? keyOf(files, argv[argv.length - 1]!.replace(/\\/g, '/')) : undefined
     if (hit) delete files[hit]
     return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
   })
@@ -386,7 +387,6 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(String(said.result), 'tool answer').toBe('Plan saved: 2 of 4 steps done.')
     const path = planFile(files)
     expect(path, 'plan file written').toBeDefined()
-    expect(ran.some(a => a[0] === 'mkdir' && String(a[a.length - 1]).endsWith('/.claude/mods-state')), 'state folder made').toBe(true)
     const saved = JSON.parse(files[path!]!) as { title: string; steps: { text: string; status: string; doneAt?: string }[]; updatedAt: string }
     expect(saved.title, 'title saved').toBe('Make the deck')
     expect(saved.steps.map(st => st.status), 'statuses saved').toEqual(['completed', 'completed', 'in_progress', 'pending'])

@@ -47,10 +47,11 @@ function setup(on: On, files: Record<string, string>, opened: string[], runs: st
     files[disk(path)] = text
     return { value: undefined } as never
   })
+  on('env.get', async () => ({ value: 'Windows_NT' }) as never)
   on('process.run', async ($, e) => {
     const argv = [...(e as { argv: readonly string[] }).argv]
     runs.push(argv)
-    if (argv[0] === 'rm') delete files[disk(argv[2]!)]
+    if (['rm', 'cmd'].includes(argv[0] ?? '')) delete files[disk(argv[argv.length - 1]!.replace(/\\/g, '/'))]
     return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
   })
   on('ui.invalidate', async () => ({ value: undefined }) as never)
@@ -173,7 +174,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     files['~/.claude/mods/.open-chat-inventory-sid'] = ''
     await clock.advance(3500)
     expect(opened, 'the open request opened the pane').toContain('chat-inventory')
-    expect(runs.some(r => r[0] === 'rm'), 'the request file was removed').toBe(true)
+    expect(runs.some(r => r[0] === 'rm' || (r[0] === 'cmd' && r.includes('del'))), 'the request file was removed').toBe(true)
   })
 }
 

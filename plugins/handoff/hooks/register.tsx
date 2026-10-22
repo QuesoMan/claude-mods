@@ -106,7 +106,6 @@ async function setHidden($: EngineInterface, value: boolean) {
     const json = await readSwitches($)
     if (value) json[HIDE_KEY] = true
     else delete json[HIDE_KEY]
-    await $.process.run(['mkdir', '-p', `${home}/.claude/mods`])
     await $.fs.write(switchesPath($), `${JSON.stringify(json, null, 2)}\n`)
   } catch (err) {
     await log($, `save hidden failed: ${String(err)}`)
@@ -125,12 +124,18 @@ async function showOffer($: EngineInterface, replace = false) {
   await setPanel($, { phase: 'offer', tokens: context.tokens ?? 0, steps: freshSteps(), tick: 0, file: '', words: 0, error: '', note: '' })
 }
 
+// $.fs has no delete, and Windows has no rm outside Git Bash: del through cmd there.
+async function removeFile($: EngineInterface, path: string) {
+  const windows = (await $.env.get('OS')) === 'Windows_NT'
+  await $.process.run(windows ? ['cmd', '/c', 'del', '/f', '/q', path.replace(/\//g, '\\')] : ['rm', '-f', path])
+}
+
 // The /mods switchboard asks for the offer by leaving an empty file for this chat.
 async function checkOpen($: EngineInterface) {
   if (!sid) return
   const path = `${home}/.claude/mods/.open-${NAME}-${sid}`
   if (!(await $.fs.exists(path).catch(() => false))) return
-  await $.process.run(['rm', '-f', path])
+  await removeFile($, path)
   if (!off) await showOffer($)
 }
 
@@ -397,7 +402,6 @@ async function run($: EngineInterface) {
       f => `${plural(f.skills.length, 'skill')}, ${plural(f.links.length, 'link')}`,
     )
     const g: Gathered = { messages, tools, files, ...found }
-    await $.process.run(['mkdir', '-p', `${home}/.claude/handoffs`])
     draftPath = `${home}/.claude/handoffs/${await stamp($)}-draft.md`
     const draft = redact(draftText(cwd, g, aim))
     await $.fs.write(draftPath, draft)
@@ -423,7 +427,6 @@ async function run($: EngineInterface) {
       4,
       async () => {
         const dir = `${home}/.claude/handoffs`
-        await $.process.run(['mkdir', '-p', dir])
         const path = `${dir}/${await stamp($)}-${slug(text)}.md`
         await $.fs.write(path, `${text}\n`)
         const back = String(await $.fs.read(path))
@@ -439,7 +442,7 @@ async function run($: EngineInterface) {
     if (sid) await $.store.set(`last:${sid}`, { path: saved })
     await log($, `ok ${tilde(saved)} ${text.split(/\s+/).length} words in ${Math.round(writeMs / 1000)} s`)
     // The full handoff replaces the draft.
-    if (draftPath) await $.process.run(['rm', '-f', draftPath])
+    if (draftPath) await removeFile($, draftPath)
   } catch (err) {
     const p = await getPanel($)
     const steps = (p?.steps ?? freshSteps()).map((s, k) => (k === running && s.status === 'run' ? { ...s, status: 'fail' as const } : s))
@@ -504,7 +507,7 @@ async function startNew($: EngineInterface) {
       await $.clock.sleep(500)
       if (await $.fs.exists(done)) {
         const answer = String(await $.fs.read(done)).trim()
-        await $.process.run(['rm', '-f', done])
+        await removeFile($, done)
         await note($, answer)
         return
       }
@@ -530,7 +533,7 @@ async function checkOffer($: EngineInterface) {
   // Cache Clock (another mod) asks for a handoff by leaving this file.
   const request = `${home}/.claude/handoffs/.request-${sid}`
   if (sid && (await $.fs.exists(request).catch(() => false))) {
-    await $.process.run(['rm', '-f', request])
+    await removeFile($, request)
     await log($, 'asked by Cache Clock')
     void run($).catch(() => undefined)
     return

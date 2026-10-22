@@ -134,7 +134,6 @@ async function log($: EngineInterface, line: string) {
     const path = `${dir}/brain-dump.log`
     let old = ''
     if (await $.fs.exists(path).catch(() => false)) old = String(await $.fs.read(path))
-    else await $.process.run(['mkdir', '-p', dir])
     await $.fs.write(path, `${old}${new Date().toISOString()} ${line}\n`)
   } catch {
     // Logging must never break a prompt.

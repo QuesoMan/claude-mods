@@ -89,7 +89,6 @@ async function setHidden($: EngineInterface, value: boolean) {
     const json = await readSwitches($)
     if (value) json[HIDE_KEY] = true
     else delete json[HIDE_KEY]
-    await $.process.run(['mkdir', '-p', `${home}/.claude/mods`])
     await $.fs.write(switchesPath($), `${JSON.stringify(json, null, 2)}\n`)
   } catch (err) {
     await log($, `save hidden failed: ${String(err)}`)

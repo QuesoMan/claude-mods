@@ -53,7 +53,6 @@ async function log($: EngineInterface, where: string, err: unknown) {
   try {
     const dir = `${homeOf($)}/.claude/mods-logs`
     const file = `${dir}/mods.log`
-    await $.process.run(['mkdir', '-p', dir])
     let old = ''
     try {
       old = String(await $.fs.read(file))
@@ -95,7 +94,6 @@ const isOff = (json: Record<string, unknown>, name: string) => json[name] === fa
 const isHidden = (json: Record<string, unknown>, name: string) => json[`${name}:hidden`] === true
 
 async function save($: EngineInterface, json: Record<string, unknown>) {
-  await $.process.run(['mkdir', '-p', `${homeOf($)}/.claude/mods`])
   const text = `${JSON.stringify(json, null, 2)}\n`
   await $.fs.write(switchesPath($), text)
   lastRaw = text
