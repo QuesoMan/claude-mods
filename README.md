@@ -7,6 +7,21 @@ Mods for Claude Code.
 | [agent-tree](agent-tree) | Live pane showing the subagent spawn tree as cards: who spawned whom, model, status, task, cost, elapsed time and recent tools. Flags Fable running as a worker and subagents idle for 2 minutes. `/agent-tree` toggles the pane. |
 | [cache-bar](cache-bar) | Status-line bar under your existing status line showing how long the prompt cache stays warm, with a handoff countdown: `cache ▰▰▰▱▱▱▱▱ 23m 182k · handoff in 18m`. Turns yellow at a quarter of the TTL, red at the handoff threshold, and follows the drop to a 5-minute TTL. `/cache-bar:setup` installs it. |
 | [filetree](filetree) | Fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) that shows only the files Claude touched this session; the header's `◆` button toggles to the whole tree. |
+| [brain-dump](brain-dump) | Catches a long, loose prompt before it is sent, asks up to 3 questions on gaps or clashes, then fills the prompt box with a four-part prompt (the job, the why, the guardrails, done means). |
+| [helper-desk](helper-desk) | Task list above the prompt that follows Claude's to-do list, plus a side pane with one live card per subagent. |
+| [cache-clock](cache-clock) | Countdown above the prompt until the chat's cache goes cold, with a Keep warm button. |
+| [handoff](handoff) | When a chat gets very long, writes a handoff prompt and starts a fresh chat with it (`/refresh <focus>`; the handoff tells the new chat to run `/pickup`). |
+| [reflect](reflect) | When you correct Claude, offers to save the fix as a lasting rule in `CLAUDE.md` or a rules folder. |
+| [chat-inventory](chat-inventory) | Side pane, In this chat, listing the to-do list, connectors and calls per connector, files and skills this chat used. |
+| [screen-share](screen-share) | `/screen-share` hides names, emails, phone numbers and money amounts on screen while you record. |
+| [replay-theater](replay-theater) | `/replay` steps through the file edits Claude made in the last turn, one diff at a time. |
+| [mods](mods) | `/mods` opens a pane to turn each mod on or off, including mods installed from other marketplaces. |
+
+The eight mods other than replay-theater, from brain-dump to mods, come from Ben AI's benai-mods ([benai.co](https://www.benai.co)) and are redistributed with permission, with Windows fixes added here. replay-theater (one Ben AI change: `/mods` switch support) is Anthropic's sample mod from [anthropics/claude-code-playground](https://github.com/anthropics/claude-code-playground/tree/main/claude-code/mods/replay-theater), under the Apache 2.0 license in its `LICENSE`.
+
+### Reflect setting
+
+Reflect saves a rule either to `~/.claude/CLAUDE.md` (Save everywhere) or as its own note in a folder you choose (Save to vault). Set that folder as `rules_folder` when you install reflect, or later for reflect in `/config`. If it is empty, reflect asks for the folder the first time you press Save to vault.
 
 ## Install
 

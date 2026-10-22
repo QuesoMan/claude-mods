@@ -4,7 +4,16 @@
   "description": "Mods for Claude Code",
   "plugins": [
     { "name": "agent-tree", "source": "./agent-tree" },
+    { "name": "brain-dump", "source": "./brain-dump" },
     { "name": "cache-bar", "source": "./cache-bar" },
-    { "name": "filetree", "source": "./filetree" }
+    { "name": "cache-clock", "source": "./cache-clock" },
+    { "name": "chat-inventory", "source": "./chat-inventory" },
+    { "name": "filetree", "source": "./filetree" },
+    { "name": "handoff", "source": "./handoff" },
+    { "name": "helper-desk", "source": "./helper-desk" },
+    { "name": "mods", "source": "./mods" },
+    { "name": "reflect", "source": "./reflect" },
+    { "name": "replay-theater", "source": "./replay-theater" },
+    { "name": "screen-share", "source": "./screen-share" }
   ]
 }
