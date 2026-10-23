@@ -7,20 +7,11 @@ export type Row = { node: FileNode; depth: number; open: boolean }
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 export const DEFAULT_THEME: Theme = {
-  fg: '',
-  accent: '#5b9bd5',
-  muted: '#808a96',
-  urgent: '#d0605e',
-  selection: '#6b7280',
-  bg: '',
-}
-
-export const LIGHT_THEME: Theme = {
-  fg: '',
-  accent: '#1e3a8a',
-  muted: '#374151',
-  urgent: '#7f1d1d',
-  selection: '#e2e6ec',
+  fg: 'text',
+  accent: 'suggestion',
+  muted: 'subtle',
+  urgent: 'error',
+  selection: '',
   bg: '',
 }
 
@@ -62,7 +53,7 @@ export function parseTheme(toml: string): Theme {
     accent: get('accent') ?? get('color4') ?? DEFAULT_THEME.accent,
     muted: get('muted') ?? get('color8') ?? DEFAULT_THEME.muted,
     urgent: get('red') ?? get('color1') ?? DEFAULT_THEME.urgent,
-    selection: get('selection') ?? DEFAULT_THEME.selection,
+    selection: get('selection') ?? '#6b7280',
     bg: get('dark_background') ?? get('background') ?? DEFAULT_THEME.bg,
   }
 }
