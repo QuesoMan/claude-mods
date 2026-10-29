@@ -102,6 +102,26 @@ async function offer($: Parameters<TestBody>[0], clock: { settle: () => Promise<
 const world = (): World => ({ files: {}, store: {}, asked: [], classified: [], drafts: 0, answer: '~/Documents/rules' })
 const props = { isWorking: false, hasSurvey: false } as never
 
+test('in the desktop app a typed correction arrives as sdk and is still checked', { timeoutMs: 30000 }, async ($, on) => {
+  const w = world()
+  mockAll(on, w)
+  const clock = mock.clock(on, { now: Date.UTC(2026, 9, 15, 12) })
+  await $.session.start({ source: 'startup', cwd: '/Users/test/vault', surface: 'desktop', isInteractive: true } as never)
+  await $.prompt.submit({ text: "No, I said never use em dashes. Don't do that again.", wait: false, origin: { kind: 'sdk' } } as never)
+  await clock.settle()
+  expect(w.drafts, 'the desktop sdk prompt was checked').toBe(1)
+})
+
+test('a terminal session ignores sdk prompts, as from claude -p', { timeoutMs: 30000 }, async ($, on) => {
+  const w = world()
+  mockAll(on, w)
+  const clock = mock.clock(on, { now: Date.UTC(2026, 9, 15, 12) })
+  await $.session.start({ source: 'startup', cwd: '/Users/test/vault', surface: 'terminal', isInteractive: false } as never)
+  await $.prompt.submit({ text: "No, I said never use em dashes. Don't do that again.", wait: false, origin: { kind: 'sdk' } } as never)
+  await clock.settle()
+  expect(w.drafts, 'the scripted prompt was not checked').toBe(0)
+})
+
 for (const surface of ['desktop', 'terminal'] as const) {
   test(`a correction shows the band, Save everywhere keeps CLAUDE.md content (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
     const w = world()

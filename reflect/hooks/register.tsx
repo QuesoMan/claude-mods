@@ -36,6 +36,8 @@ let enabled = true
 // Bumped on every prompt, so a slow draft for an older prompt is dropped.
 let gen = 0
 let turnDone = true
+// True when an app draws this session; its prompts come through the SDK.
+let inApp = false
 let pending: { rule: string; slug: string; correction: string } | null = null
 let nextId = 1
 
@@ -326,6 +328,7 @@ export const register: Register = (on, options) => {
   configured = typeof options.rules_folder === 'string' ? options.rules_folder : ''
   on('session.start', async ($, e, next) => {
     home = $.plugin.root.replace(/\\/g, '/').split('/.claude/')[0] ?? ''
+    inApp = e.surface === 'desktop' || e.surface === 'vscode' || e.surface === 'mobile'
     await $.command.register({ name: 'reflect', description: 'Turn reflect on or off. /reflect folder forgets the remembered rules folder', argumentHint: '[folder]' })
     const saved = await $.store.get('enabled')
     enabled = saved !== false
@@ -338,7 +341,9 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     if (off) return next(e)
-    if (e.origin.kind !== 'composer' && e.origin.kind !== 'bridge') return next(e)
+    // An app (the desktop app, VS Code) hosts its session through the SDK, so the person's own prompts arrive as 'sdk' there.
+    const typed = e.origin.kind === 'composer' || e.origin.kind === 'bridge' || (e.origin.kind === 'sdk' && inApp)
+    if (!typed) return next(e)
     gen += 1
     turnDone = false
     pending = null
