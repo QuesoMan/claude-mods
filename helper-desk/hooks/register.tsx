@@ -1,7 +1,11 @@
 import type { EngineInterface, Register, ThemeKey } from 'claude-code'
 
-import type { BandPlan, Helper, HelperPhase, JevCall, PlanStatus, Step, StepKind } from '../types'
+import type { BandPlan, Helper, HelperPhase, JevCall, PlanStatus, Step, StepKind, TranscriptMessage, TranscriptRow, TranscriptTool, TranscriptView } from '../types'
 import { connectorName, splitTool } from './connectors'
+
+// The plan band, its tool and its nudges. Off here: the desktop app keeps its own task list,
+// and the nudges add a note to the model after tool calls.
+export const PLAN_ON = false
 
 const NAME = 'helper-desk'
 const PANE = 'helpers'
@@ -19,6 +23,13 @@ const JEV = { plugin: 'helper-desk', key: 'jev' } as const
 const JEV_TOKENS = { plugin: 'helper-desk', key: 'jevTokens' } as const
 const FOCUS = { plugin: 'helper-desk', key: 'focus' } as const
 const MOTION = { plugin: 'helper-desk', key: 'motion' } as const
+const TRANSCRIPT = { plugin: 'helper-desk', key: 'transcript' } as const
+
+// The transcript reader keeps the newest messages, and cuts long tool output.
+const TX_MAX_MESSAGES = 150
+const TX_TEXT_MAX = 4000
+const TX_RESULT_MAX = 600
+const NO_TRANSCRIPT: TranscriptView = { id: null, rows: [], error: '', skipped: 0, open: [] }
 
 const TICK_MS = 300
 const POLL_MS = 2000
@@ -894,6 +905,8 @@ async function poll($: EngineInterface) {
   }
   if (changed) await publish($)
   else await readCost($)
+  await refreshRuns($)
+  await refreshTranscript($)
 }
 
 /** A helper's model family: its own model, else the main chat's (a helper that inherits it), else sonnet. */
@@ -983,7 +996,7 @@ async function publish($: EngineInterface) {
   syncTimers($)
 }
 
-async function addHelper($: EngineInterface, id: string, description: string, type: string, model: string, name = '', level?: Effort) {
+async function addHelper($: EngineInterface, id: string, description: string, type: string, model: string, name = '', level?: Effort, run?: { runId: string; index: number }) {
   const known = helpers.find(hp => hp.id === id)
   if (known) {
     // Found first through its own tool calls: fill in what the spawn knows.
@@ -993,6 +1006,7 @@ async function addHelper($: EngineInterface, id: string, description: string, ty
     if (name && !known.name) known.name = name
     // A card found first through its own tool calls has no dispatch yet: the spawn tells its effort.
     if (level) known.level = level
+    if (run && !known.workflow) known.workflow = { ...run, name: runNames.get(run.runId) ?? '', stage: '' }
     await publish($)
     return
   }
@@ -1018,6 +1032,7 @@ async function addHelper($: EngineInterface, id: string, description: string, ty
     hasUsage: false,
     seat: seats,
     hue: pickHue(),
+    ...(run ? { workflow: { ...run, name: runNames.get(run.runId) ?? '', stage: '' } } : {}),
   }
   helpers.push(added)
   seats += 1
@@ -1025,6 +1040,108 @@ async function addHelper($: EngineInterface, id: string, description: string, ty
   await publish($)
   // The pane opens by itself when a new round of helpers starts.
   if (wasIdle && !hidden) void $.ui.open({ id: PANE, title: TITLE }).catch(err => log($, `open: ${String(err)}`))
+  if (run) void readRun($, run.runId).catch(err => log($, `run: ${String(err)}`))
+}
+
+// ---------- Workflow runs: their name, and each agent's stage, from the files the run writes ----------
+
+// A run's name, once its file names it.
+const runNames = new Map<string, string>()
+// The session's folder under ~/.claude/projects, keyed by session id; '' when none was found.
+const sessionDirs = new Map<string, string>()
+
+/** This session's folder, where its subagents' and workflows' transcripts are saved. */
+async function sessionDir($: EngineInterface) {
+  if (!home || !sessionId) return ''
+  const hit = sessionDirs.get(sessionId)
+  if (hit !== undefined) return hit
+  const root = `${home}/.claude/projects`
+  let found = ''
+  for (const entry of await $.fs.list(root).catch(() => [])) {
+    if (entry.kind !== 'dir') continue
+    if (await $.fs.exists(`${root}/${entry.name}/${sessionId}`).catch(() => false)) {
+      found = `${root}/${entry.name}/${sessionId}`
+      break
+    }
+  }
+  // Not found yet (a brand-new session): try again next time.
+  if (found) sessionDirs.set(sessionId, found)
+  return found
+}
+
+/** Reads a run's name from its saved script, and each agent's stage and label from its journal. */
+async function readRun($: EngineInterface, runId: string) {
+  const dir = await sessionDir($)
+  if (!dir) return
+  let changed = false
+  if (!runNames.has(runId)) {
+    // The script is saved as <name>-<runId>.js when the run starts; the run's own file only when it ends.
+    const scripts = await $.fs.list(`${dir}/workflows/scripts`).catch(() => [])
+    let name = scripts.find(f => f.name.endsWith(`-${runId}.js`))?.name.slice(0, -`-${runId}.js`.length)
+    if (!name) {
+      const text = await $.fs.read(`${dir}/workflows/${runId}.json`).then(String).catch(() => '')
+      const script = text ? (str((JSON.parse(text) as { script?: unknown }).script) ?? '') : ''
+      name = /meta\s*=\s*\{[\s\S]*?\bname\s*:\s*(['"`])(.+?)\1/.exec(script)?.[2]
+    }
+    if (name) runNames.set(runId, name)
+  }
+  const journal = await $.fs.read(`${dir}/subagents/workflows/${runId}/journal.jsonl`).then(String).catch(() => '')
+  const started = new Map<string, { label: string; phase: string }>()
+  for (const line of journal.split('\n')) {
+    if (!line.includes('"started"')) continue
+    try {
+      const row = JSON.parse(line) as { type?: unknown; agentId?: unknown; label?: unknown; phase?: unknown }
+      if (row.type === 'started' && typeof row.agentId === 'string') started.set(row.agentId, { label: str(row.label) ?? '', phase: str(row.phase) ?? '' })
+    } catch {
+      // A line being written: the next read has it.
+    }
+  }
+  for (const hp of helpers) {
+    if (hp.workflow?.runId !== runId) continue
+    const name = runNames.get(runId) ?? ''
+    if (name && hp.workflow.name !== name) {
+      hp.workflow = { ...hp.workflow, name }
+      changed = true
+    }
+    const row = started.get(hp.id)
+    if (row?.phase && hp.workflow.stage !== row.phase) {
+      hp.workflow = { ...hp.workflow, stage: row.phase }
+      changed = true
+    }
+    if (row?.label && (hp.description === 'Subagent' || !hp.description)) {
+      hp.description = row.label
+      changed = true
+    }
+  }
+  if (changed) await publish($)
+}
+
+/** Cards kept from before a reload that a workflow started but that carry no run: find each one's run in the saved journals. */
+async function adoptRuns($: EngineInterface) {
+  const orphans = helpers.filter(hp => !hp.workflow && hp.type === 'workflow-subagent')
+  if (!orphans.length) return
+  const dir = await sessionDir($)
+  if (!dir) return
+  const runs = (await $.fs.list(`${dir}/subagents/workflows`).catch(() => [])).filter(d => d.kind === 'dir' && d.name.startsWith('wf_'))
+  for (const run of runs) {
+    const journal = await $.fs.read(`${dir}/subagents/workflows/${run.name}/journal.jsonl`).then(String).catch(() => '')
+    let index = 0
+    for (const line of journal.split('\n')) {
+      if (!line.includes('"started"')) continue
+      index += 1
+      const agentId = /"agentId":"([^"]+)"/.exec(line)?.[1]
+      const hp = orphans.find(x => x.id === agentId)
+      if (hp) hp.workflow = { runId: run.name, index, name: '', stage: '' }
+    }
+  }
+  for (const runId of new Set(orphans.filter(hp => hp.workflow).map(hp => hp.workflow!.runId))) await readRun($, runId)
+  await publish($)
+}
+
+/** Runs with an agent still at work, or whose name is not known yet. */
+async function refreshRuns($: EngineInterface) {
+  const due = new Set(helpers.filter(hp => hp.workflow && (hp.phase === 'working' || !hp.workflow.name)).map(hp => hp.workflow!.runId))
+  for (const runId of due) await readRun($, runId).catch(err => log($, `run: ${String(err)}`))
 }
 
 /** A loop whose spawn this mod missed (a reload, a race): take it from $.agent.list(). */
@@ -1189,7 +1306,9 @@ async function setMotion($: EngineInterface, value: boolean) {
 const GROUPS = ['running', 'finished', 'stopped']
 
 /** The cards as the pane lists them, top to bottom: Running, then Finished, then Stopped. */
-function byGroup(list: Helper[]) {
+function byGroup(all: Helper[]) {
+  // A workflow's agents draw under their run instead.
+  const list = all.filter(hp => !hp.workflow)
   const running = list.filter(hp => hp.phase === 'working')
   const finished = list.filter(hp => hp.phase === 'done')
   const stopped = list.filter(hp => hp.phase === 'failed')
@@ -1472,6 +1591,160 @@ async function toggleIn($: EngineInterface, field: 'open' | 'folded', id: string
   await $.state.set(VIEW, { ...value, [field]: nextList })
 }
 
+// ---------- Transcripts: one subagent's whole conversation, read on a click ----------
+
+const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}\n… (${t.length - n} more characters)` : t)
+const plural = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`)
+
+/** A folded run of tool calls in one line, as the chat says it: "Read 2 files, searched files, ran a command". */
+function toolRunSummary(tools: TranscriptTool[]) {
+  const counts = new Map<string, number>()
+  const add = (k: string) => counts.set(k, (counts.get(k) ?? 0) + 1)
+  for (const t of tools) {
+    if (t.tool === 'Read') add('read')
+    else if (t.tool === 'Grep' || t.tool === 'Glob') add('search')
+    else if (t.tool === 'Bash' || t.tool === 'PowerShell') add('command')
+    else if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(t.tool)) add('edit')
+    else if (t.tool === 'WebSearch' || t.tool === 'WebFetch') add('web')
+    else if (t.tool === 'Agent' || t.tool === 'Task') add('agent')
+    else if (t.tool.startsWith('mcp__')) add(`used ${connectorName(splitTool(t.tool).server, splitTool(t.tool).name)}`)
+    else add(`used ${t.tool}`)
+  }
+  const parts = [...counts].map(([k, n]) => {
+    switch (k) {
+      case 'read':
+        return `read ${plural(n, 'a file', 'files')}`
+      case 'search':
+        return n === 1 ? 'searched files' : `searched files ${n} times`
+      case 'command':
+        return `ran ${plural(n, 'a command', 'commands')}`
+      case 'edit':
+        return `edited ${plural(n, 'a file', 'files')}`
+      case 'web':
+        return n === 1 ? 'searched the web' : `searched the web ${n} times`
+      case 'agent':
+        return `started ${plural(n, 'a subagent', 'subagents')}`
+      default:
+        return n === 1 ? k : `${k} ×${n}`
+    }
+  })
+  const failed = tools.filter(t => t.isError).length
+  const line = parts.join(', ')
+  return `${line[0]!.toUpperCase()}${line.slice(1)}${failed ? ` · ${failed} failed` : ''}`
+}
+
+/** The text of a saved tool result's content: a string, or its text blocks joined. */
+const blockText = (c: unknown) =>
+  typeof c === 'string' ? c : Array.isArray(c) ? c.map(b => (obj(b)?.type === 'text' ? (str(obj(b)?.text) ?? '') : '')).join('\n') : ''
+
+/**
+ * A subagent's transcript read back from the file the session saved for it, for the agents the engine
+ * hands no conversation for (a workflow's): each line a message, its tool results joined to their calls.
+ */
+async function readSavedTranscript($: EngineInterface, id: string): Promise<TranscriptMessage[] | null> {
+  const dir = await sessionDir($)
+  if (!dir) return null
+  const run = helpers.find(hp => hp.id === id)?.workflow?.runId
+  const path = run ? `${dir}/subagents/workflows/${run}/agent-${id}.jsonl` : `${dir}/subagents/agent-${id}.jsonl`
+  const text = await $.fs.read(path).then(String).catch(() => '')
+  if (!text) return null
+  const out: TranscriptMessage[] = []
+  const calls = new Map<string, TranscriptMessage['toolUses'][number]>()
+  for (const line of text.split('\n')) {
+    let row: Record<string, unknown> | undefined
+    try {
+      row = obj(JSON.parse(line))
+    } catch {
+      continue
+    }
+    const msg = obj(row?.message)
+    const role = row?.type
+    if (!msg || (role !== 'user' && role !== 'assistant')) continue
+    const content = msg.content
+    const blocks = Array.isArray(content) ? content.map(obj).filter(b => b !== undefined) : []
+    const texts = typeof content === 'string' ? [content] : blocks.filter(b => b.type === 'text').map(b => str(b.text) ?? '')
+    const toolUses: TranscriptMessage['toolUses'] = []
+    for (const b of blocks) {
+      if (b.type === 'tool_use') {
+        const call = { tool: str(b.name) ?? 'Tool', input: obj(b.input) ?? {} }
+        calls.set(str(b.id) ?? '', call)
+        toolUses.push(call)
+      } else if (b.type === 'tool_result') {
+        const call = calls.get(str(b.tool_use_id) ?? '')
+        if (call) Object.assign(call, { text: blockText(b.content) }, b.is_error === true ? { isError: true } : {})
+      }
+    }
+    const joined = texts.join('\n').trim()
+    // A user line holding only tool results is not a message of its own.
+    if (joined || toolUses.length) out.push({ role, text: joined, toolUses })
+  }
+  return out
+}
+
+/** Reads a helper's conversation, from the engine or else its saved file, and lays it out as rows; tool calls in a row join one run. */
+async function loadTranscript($: EngineInterface, id: string) {
+  const { value: before = NO_TRANSCRIPT } = await $.state.get(TRANSCRIPT)
+  // What the person unfolded stays unfolded across a refresh.
+  const open = before.id === id ? before.open : []
+  let next: TranscriptView
+  try {
+    const fromEngine: TranscriptMessage[] | { deny: string } = await $.session.messages({ agentId: id })
+    const found = 'deny' in fromEngine ? ((await readSavedTranscript($, id).catch(() => null)) ?? fromEngine) : fromEngine
+    if ('deny' in found) {
+      next = { id, rows: [], error: found.deny, skipped: 0, open }
+    } else {
+      const kept = found.slice(-TX_MAX_MESSAGES)
+      const rows: TranscriptRow[] = []
+      const addTool = (t: TranscriptTool) => {
+        const last = rows[rows.length - 1]
+        if (last?.who === 'Tools') last.tools.push(t)
+        else rows.push({ who: 'Tools', tools: [t] })
+      }
+      kept.forEach((m, i) => {
+        const first = i === 0 && kept.length === found.length
+        if (m.role === 'user') {
+          // Tool results ride on user messages; they show under their tool call instead.
+          if (m.text.trim()) rows.push({ who: first ? 'Prompt' : 'You', text: clip(m.text.trim(), TX_TEXT_MAX) })
+          return
+        }
+        if (m.text.trim()) rows.push({ who: 'Claude', text: clip(m.text.trim(), TX_TEXT_MAX) })
+        for (const tu of m.toolUses) {
+          // The hand-back tool carries the report the main agent gets: its longest text field.
+          if (/handback/i.test(tu.tool)) {
+            const texts = Object.values(tu.input).filter((v): v is string => typeof v === 'string')
+            const report = texts.sort((a, b) => b.length - a.length)[0]?.trim() ?? ''
+            rows.push({ who: 'Report', text: report || JSON.stringify(tu.input, null, 2) })
+            continue
+          }
+          const out = typeof tu.text === 'string' ? tu.text.trim() : ''
+          addTool({ tool: tu.tool, text: describe(tu.tool, tu.input).live, result: clip(out, TX_RESULT_MAX), ...(tu.isError ? { isError: true } : {}) })
+        }
+      })
+      // With no hand-back tool, a finished subagent's last reply is what the main agent got.
+      const last = rows[rows.length - 1]
+      const over = helpers.some(hp => hp.id === id && hp.phase !== 'working')
+      if (over && last?.who === 'Claude' && !rows.some(r => r.who === 'Report')) rows[rows.length - 1] = { who: 'Report', text: last.text }
+      next = { id, rows, error: '', skipped: found.length - kept.length, open }
+    }
+  } catch (err) {
+    next = { id, rows: [], error: String(err), skipped: 0, open }
+  }
+  // The person may have gone back or picked another while this read ran.
+  const { value: now = NO_TRANSCRIPT } = await $.state.get(TRANSCRIPT)
+  if (now.id === id) await $.state.set(TRANSCRIPT, { ...next, open: now.open })
+}
+
+async function openTranscript($: EngineInterface, id: string) {
+  await $.state.set(TRANSCRIPT, { ...NO_TRANSCRIPT, id })
+  await loadTranscript($, id)
+}
+
+/** A live helper's open transcript follows along on the poll. */
+async function refreshTranscript($: EngineInterface) {
+  const { value: tx = NO_TRANSCRIPT } = await $.state.get(TRANSCRIPT)
+  if (tx.id && helpers.some(hp => hp.id === tx.id && hp.phase === 'working')) await loadTranscript($, tx.id)
+}
+
 // ---------- Drawing ----------
 
 /** A label then dim text, both cut to fit `w` cells; the folder gives way first. */
@@ -1564,8 +1837,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     home = await resolveHome($)
     sessionId = await $.session.id().catch(() => '')
-    await $.command.register({ name: 'helpers', description: 'Show the Helper Desk: the task list and one live card per subagent', argumentHint: '[hide|fold|steps|goto|motion]', immediate: true })
-    await $.tool.register({
+    await $.command.register({ name: 'helpers', description: 'Show the Helper Desk: one live card per subagent, with its transcript', argumentHint: '[hide|fold|steps|goto|motion]', immediate: true })
+    if (PLAN_ON) await $.tool.register({
       name: 'plan',
       description:
         'Save the plan for the job in front of you: the steps in order, each pending, in_progress or completed. ' +
@@ -1595,8 +1868,10 @@ export const register: Register = on => {
     motion = (await $.store.get(MOTION_KEY).catch(() => undefined)) !== false
     await $.state.set(MOTION, motion)
     await readSwitch($)
-    await loadPlan($)
+    if (PLAN_ON) await loadPlan($)
     await pollJev($)
+    // An open transcript from an earlier version may be laid out another way: start from the cards.
+    await $.state.set(TRANSCRIPT, NO_TRANSCRIPT)
     switcher ??= $.clock.every(SWITCH_MS, () => {
       void switchPoll($).catch(err => log($, `switch: ${String(err)}`))
     })
@@ -1614,6 +1889,9 @@ export const register: Register = on => {
         seats = Math.max(...helpers.map(hp => hp.seat)) + 1
         nextHue = (Math.max(...helpers.map(hp => hp.hue)) + 1) % HUES.length
         syncTimers($)
+        void adoptRuns($)
+          .then(() => refreshRuns($))
+          .catch(err => log($, `adopt runs: ${String(err)}`))
       }
     }
     return next(e)
@@ -1688,6 +1966,33 @@ export const register: Register = on => {
       await toggleIn($, 'folded', e.element.slice('group-'.length))
       return { element: e.element }
     }
+    if (e.element === 'tx-back') {
+      await $.state.set(TRANSCRIPT, NO_TRANSCRIPT)
+      return { element: e.element }
+    }
+    if (e.element === 'tx-refresh') {
+      const { value: tx = NO_TRANSCRIPT } = await $.state.get(TRANSCRIPT)
+      if (tx.id) await loadTranscript($, tx.id)
+      return { element: e.element }
+    }
+    // A folded tool run or one tool's output: "fold-r3", "fold-r3-1".
+    if (e.element.startsWith('fold-')) {
+      const key = e.element.slice('fold-'.length)
+      const { value: tx = NO_TRANSCRIPT } = await $.state.get(TRANSCRIPT)
+      const open = tx.open.includes(key) ? tx.open.filter(k => k !== key) : [...tx.open, key]
+      await $.state.set(TRANSCRIPT, { ...tx, open })
+      return { element: e.element }
+    }
+    if (e.element.startsWith('tx-')) {
+      await openTranscript($, e.element.slice('tx-'.length))
+      return { element: e.element }
+    }
+    // The engine's own transcript view, where the surface has one.
+    if (e.element.startsWith('view-')) {
+      const r = await $.ui.view({ agentId: e.element.slice('view-'.length) }).catch(err => ({ deny: String(err) }))
+      if (r.deny) say($, `Can't open it in the main view here: ${r.deny}`)
+      return { element: e.element }
+    }
     return next(e)
   })
 
@@ -1699,7 +2004,8 @@ export const register: Register = on => {
     const level = dispatchEffort.get(e.tool_use_id)
     dispatchEffort.delete(e.tool_use_id)
     if (id) {
-      void addHelper($, id, e.description || 'Subagent', e.subagentType || 'subagent', shortModel(e.model && e.model !== 'inherit' ? e.model : (r.model ?? '')), e.name ?? '', level).catch(err =>
+      const run = e.workflow ? { runId: e.workflow.runId, index: e.workflow.agentIndex } : undefined
+      void addHelper($, id, e.description || 'Subagent', e.subagentType || 'subagent', shortModel(e.model && e.model !== 'inherit' ? e.model : (r.model ?? '')), e.name ?? '', level, run).catch(err =>
         log($, `spawn: ${String(err)}`),
       )
     }
@@ -1742,7 +2048,7 @@ export const register: Register = on => {
     } catch (err) {
       void log($, `tool bookkeeping: ${String(err)}`)
     }
-    if (id) return next(e)
+    if (id || !PLAN_ON) return next(e)
     if (MIRRORED.has(tool)) {
       const r = await next(e)
       turnPlanned = true
@@ -1767,7 +2073,7 @@ export const register: Register = on => {
   // A short system-prompt section, only while the mod is on.
   on('prompt.compose', async ($, e, next) => {
     const r = await next(e)
-    if (off || e.traits.includes('teammate') || e.traits.includes('bare')) return r
+    if (!PLAN_ON || off || e.traits.includes('teammate') || e.traits.includes('bare')) return r
     return { sections: [...r.sections, { id: 'helper-desk:plan', text: PLAN_PROMPT, scope: 'session' as const }] }
   })
 
@@ -1806,6 +2112,9 @@ export const register: Register = on => {
     if (id && !off && helpers.some(hp => hp.id === id)) {
       const failed = e.reason === 'error' || e.reason === 'refusal' || e.isAborted
       void finish($, id, failed ? 'failed' : 'done', e.usage ?? null).catch(err => log($, `turn: ${String(err)}`))
+      // The poll stops with the last agent: read its run once more, so the name and stages are final.
+      const runId = helpers.find(hp => hp.id === id)?.workflow?.runId
+      if (runId) void readRun($, runId).catch(err => log($, `run: ${String(err)}`))
     }
     return r
   })
@@ -1851,6 +2160,108 @@ export const register: Register = on => {
 
     // The frame timer repaints the Rasters this draw mounts; a stale mount's entries go.
     for (const [key, pet] of pets) if (pet.requestId === e.requestId) pets.delete(key)
+
+    // One subagent's transcript in place of the cards, until Back.
+    const { value: tx = NO_TRANSCRIPT } = await $.state.get(TRANSCRIPT)
+    if (tx.id) {
+      syncTimers($)
+      const hp = list.find(x => x.id === tx.id)
+      const hue = hueOf(hp?.hue ?? 0)
+      const live = hp?.phase === 'working'
+      const WHO_COLOR: Record<'Prompt' | 'You' | 'Claude', ThemeKey> = { Prompt: PURPLE, You: PURPLE, Claude: ACCENT }
+      // A run of tool calls folds into one dim line, as the chat draws it; each call folds its output.
+      const toolRun = (row: Extract<TranscriptRow, { who: 'Tools' }>, i: number) => {
+        const key = `r${i}`
+        const isOpen = tx.open.includes(key)
+        return (
+          <Box key={`tx-${i}`} flexDirection="column" width={width} marginTop={1}>
+            <Button key={`fold-${key}`} plain onPress={() => undefined}>
+              <Text dimColor wrap="truncate-end">
+                {cut(`${toolRunSummary(row.tools)} ${isOpen ? '▾' : '▸'}`, width)}
+              </Text>
+            </Button>
+            {isOpen
+              ? row.tools.map((t, k) => {
+                  const tKey = `${key}-${k}`
+                  const tOpen = tx.open.includes(tKey)
+                  return (
+                    <Box key={`tx-${i}-${k}`} flexDirection="column" width={width} paddingLeft={2}>
+                      {t.result ? (
+                        <Button key={`fold-${tKey}`} plain onPress={() => undefined}>
+                          <Text color={t.isError ? BAD : undefined} dimColor={!t.isError} wrap="truncate-end">
+                            {cut(`${tOpen ? '▾' : '▸'} ${t.text}`, width - 2)}
+                          </Text>
+                        </Button>
+                      ) : (
+                        <Text dimColor wrap="truncate-end">
+                          {cut(`  ${t.text}`, width - 2)}
+                        </Text>
+                      )}
+                      {tOpen && t.result ? (
+                        <Box key={`tx-out-${i}-${k}`} paddingLeft={2} width={width - 2}>
+                          <Text dimColor={!t.isError} color={t.isError ? BAD : undefined} wrap="wrap">
+                            {t.result}
+                          </Text>
+                        </Box>
+                      ) : null}
+                    </Box>
+                  )
+                })
+              : null}
+          </Box>
+        )
+      }
+      return (
+        <Box flexDirection="column" width={width}>
+          <Box key="tx-head" flexDirection="row" justifyContent="space-between" gap={1} width={width}>
+            <Button key="tx-back" plain onPress={() => undefined}>
+              <Text weight="bold">← Back</Text>
+            </Button>
+            <Box key="tx-acts" flexDirection="row" gap={2}>
+              <Button key="tx-refresh" label="Refresh" dimColor onPress={() => undefined} />
+              <Button key={`view-${tx.id}`} label="Open in main view" dimColor onPress={() => undefined} />
+            </Box>
+          </Box>
+          <Box key="tx-title" flexDirection="column" width={width} marginY={1} borderStyle="round" borderColor={hue.key} paddingX={1}>
+            <Text weight="bold" wrap="truncate-end">
+              {hp?.description ?? 'Subagent'}
+            </Text>
+            <Text dimColor wrap="truncate-end">
+              {[
+                hp?.workflow ? [hp.workflow.name || 'Workflow', hp.workflow.stage].filter(Boolean).join(' › ') : hp?.type,
+                hp?.model,
+                live ? 'running · updates live' : hp?.phase === 'failed' ? 'stopped' : 'done',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          </Box>
+          {tx.error ? <Text key="tx-err" color={BAD}>{`Couldn't read this transcript: ${tx.error}`}</Text> : null}
+          {!tx.error && !tx.rows.length ? <Text key="tx-wait" dimColor>Loading the transcript…</Text> : null}
+          {tx.skipped ? <Text key="tx-skip" dimColor>{`${tx.skipped} older messages not shown`}</Text> : null}
+          {tx.rows.map((row, i) =>
+            row.who === 'Tools' ? (
+              toolRun(row, i)
+            ) : row.who === 'Report' ? (
+              <Box key={`tx-${i}`} flexDirection="column" width={width} marginTop={1} borderStyle="round" borderColor={GOOD} paddingX={1}>
+                <Text weight="bold" color={GOOD}>
+                  {hp?.workflow ? '↩ Returned to the workflow' : '↩ Sent back to the main agent'}
+                </Text>
+                <Text wrap="wrap">{row.text}</Text>
+              </Box>
+            ) : (
+              <Box key={`tx-${i}`} flexDirection="column" width={width} marginTop={1}>
+                <Text weight="bold" color={WHO_COLOR[row.who]}>
+                  {row.who === 'You' ? 'Message' : row.who}
+                </Text>
+                <Text wrap="wrap">{row.text}</Text>
+              </Box>
+            ),
+          )}
+          {live ? <Text key="tx-live" color={ACCENT}>{`${SPIN[clk.tick % SPIN.length]!} still working…`}</Text> : null}
+        </Box>
+      )
+    }
 
     // Only a working pet moves, and only with motion on; any other is the standing pose.
     const pet = (hp: Helper) => {
@@ -2003,11 +2414,18 @@ export const register: Register = on => {
                 <Text dimColor>{b3}</Text>
               </Text>
             )}
-            {hp.steps.length ? (
-              <Button key={`steps-${hp.id}`} plain dimColor onPress={() => undefined}>
-                {isOpen ? '▾ Hide steps' : `▸ All ${hp.count} step${hp.count === 1 ? '' : 's'}`}
+            <Box key={`acts-${hp.id}`} flexDirection="row" gap={2} width={cw}>
+              <Button key={`tx-${hp.id}`} plain onPress={() => undefined}>
+                <Text weight="bold" color={hue.key}>
+                  ▤ Read transcript
+                </Text>
               </Button>
-            ) : null}
+              {hp.steps.length ? (
+                <Button key={`steps-${hp.id}`} plain dimColor onPress={() => undefined}>
+                  {isOpen ? '▾ Hide steps' : `▸ All ${hp.count} step${hp.count === 1 ? '' : 's'}`}
+                </Button>
+              ) : null}
+            </Box>
             {isOpen ? (
               <Box key={`list-${hp.id}`} flexDirection="column" width={cw}>
                 {hp.count > hp.steps.length ? <Text dimColor>{`${hp.count - hp.steps.length} older steps not kept`}</Text> : null}
@@ -2203,6 +2621,100 @@ export const register: Register = on => {
 
     // The groups build the cards, and the cards register their pets: draw them before the frame timer looks.
     const groups = [group('running', 'Running', running, GOOD, INK), group('finished', 'Finished', finished, WARN, INK), group('stopped', 'Stopped', stopped, BAD, INK)]
+
+    // A workflow run draws as one box, its agents in a compact row each under the stage they ran in, as the
+    // Workflow tool's own progress view does. A row opens that agent's transcript.
+    const runIds = [...new Set(list.filter(hp => hp.workflow).map(hp => hp.workflow!.runId))].reverse()
+    const TOK_W = 8
+    const TIME_W = 9
+    const spanOf = (members: Helper[]) => {
+      const start = Math.min(...members.map(hp => hp.startedAt))
+      const end = members.some(hp => hp.phase === 'working') ? Math.max(clk.now, start) : Math.max(...members.map(hp => hp.endedAt))
+      return clockTime(end - start)
+    }
+    const runBox = (runId: string) => {
+      const members = list.filter(hp => hp.workflow?.runId === runId).sort((a, b) => a.workflow!.index - b.workflow!.index)
+      const inner = width - 4
+      const folded = isFolded(view, `wf-${runId}`)
+      const busy = members.filter(hp => hp.phase === 'working').length
+      const failedN = members.filter(hp => hp.phase === 'failed').length
+      const tokens = members.reduce((n, hp) => n + hp.tokens + hp.turnTokens, 0)
+      const name = members[0]!.workflow!.name || 'Workflow'
+      const time = spanOf(members)
+      const facts = [
+        `${members.length} agent${members.length === 1 ? '' : 's'}`,
+        members.some(hp => hp.hasUsage) ? `${tokenText(tokens)} tokens` : '',
+        busy ? `${busy} running` : '',
+        failedN ? `${failedN} failed` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      const stages = [...new Set(members.map(hp => hp.workflow!.stage || 'Agents'))]
+      const labelW = Math.max(8, inner - 2 - TOK_W - TIME_W)
+      const row = (hp: Helper) => {
+        const live = hp.phase === 'working'
+        const mark = live ? SPIN[clk.tick % SPIN.length]! : hp.phase === 'done' ? '✓' : '✗'
+        const t = clockTime((live ? Math.max(clk.now, hp.startedAt) : hp.endedAt) - hp.startedAt)
+        return (
+          <Box key={`wf-row-${hp.id}`} flexDirection="row" width={inner}>
+            <Box width={labelW + 2}>
+              <Button key={`tx-${hp.id}`} plain onPress={() => undefined}>
+                <Text wrap="truncate-end">
+                  <Text color={live ? ACCENT : hp.phase === 'done' ? GOOD : BAD}>{`${mark} `}</Text>
+                  {cut(hp.description, labelW)}
+                </Text>
+              </Button>
+            </Box>
+            <Text dimColor>{(hp.hasUsage ? tokenText(hp.tokens + hp.turnTokens) : '').padStart(TOK_W)}</Text>
+            <Text dimColor>{t.padStart(TIME_W)}</Text>
+          </Box>
+        )
+      }
+      const stageBox = (stage: string) => {
+        const inStage = members.filter(hp => (hp.workflow!.stage || 'Agents') === stage)
+        const key = `wfs-${runId}-${stage}`
+        const stageFolded = isFolded(view, key)
+        const done = inStage.filter(hp => hp.phase !== 'working').length
+        return (
+          <Box key={`stage-${runId}-${stage}`} flexDirection="column" width={inner} marginTop={1}>
+            <Box key={`stage-head-${runId}-${stage}`} flexDirection="row" justifyContent="space-between" width={inner}>
+              <Button key={`group-${key}`} plain onPress={() => undefined}>
+                <Text weight="bold" wrap="truncate-end">{`${stageFolded ? '▸' : '▾'} ${cut(stage, inner - 12)}`}</Text>
+              </Button>
+              <Text dimColor>{`${done}/${inStage.length}`}</Text>
+            </Box>
+            {stageFolded ? null : (
+              <Box key={`stage-rows-${runId}-${stage}`} flexDirection="column" width={inner}>
+                <Box key={`stage-cols-${runId}-${stage}`} flexDirection="row" width={inner}>
+                  <Box width={labelW + 2}>
+                    <Text dimColor>{'  Agent'}</Text>
+                  </Box>
+                  <Text dimColor>{'Tokens'.padStart(TOK_W)}</Text>
+                  <Text dimColor>{'Time'.padStart(TIME_W)}</Text>
+                </Box>
+                {inStage.map(row)}
+              </Box>
+            )}
+          </Box>
+        )
+      }
+      return (
+        <Box key={`wf-${runId}`} flexDirection="column" width={width} borderStyle="round" borderColor={busy ? ACCENT : failedN ? BAD : 'subtle'} borderDimColor={!busy} paddingX={1} marginTop={1}>
+          <Box key={`wf-head-${runId}`} flexDirection="row" justifyContent="space-between" width={inner}>
+            <Button key={`group-wf-${runId}`} plain onPress={() => undefined}>
+              <Text weight="bold" wrap="truncate-end">{`${folded ? '▸' : '▾'} ${cut(name, inner - TIME_W - 3)}`}</Text>
+            </Button>
+            <Text dimColor>{time}</Text>
+          </Box>
+          <Text key={`wf-facts-${runId}`} dimColor wrap="truncate-end">
+            {facts}
+          </Text>
+          {folded ? null : stages.map(stageBox)}
+        </Box>
+      )
+    }
+    const runBoxes = runIds.map(runBox)
+    const soloCount = list.filter(hp => !hp.workflow).length
     const jevCards = jevCard(calls)
     // Starts the frame timer when this draw mounted the first running pet; a no-op otherwise.
     syncTimers($)
@@ -2211,7 +2723,11 @@ export const register: Register = on => {
       <Box flexDirection="column" width={width}>
         <Box key="header" flexDirection="row" justifyContent="space-between" gap={1} width={width} marginBottom={1}>
           <Text weight="bold" color={running.length ? ACCENT : list.length ? GOOD : undefined} wrap="truncate-end">
-            {list.length ? `${list.length} subagent${list.length === 1 ? '' : 's'} in this chat` : 'No subagents yet'}
+            {list.length
+              ? [soloCount ? `${soloCount} subagent${soloCount === 1 ? '' : 's'}` : '', runIds.length ? `${runIds.length} workflow${runIds.length === 1 ? '' : 's'}` : '']
+                  .filter(Boolean)
+                  .join(' · ') + ' in this chat'
+              : 'No subagents yet'}
           </Text>
           <Button key="hide" label="Hide" dimColor onPress={() => undefined} />
         </Box>
@@ -2231,6 +2747,7 @@ export const register: Register = on => {
         ) : null}
         {jevCards}
         {list.length ? null : <Text dimColor>Cards show up here when Claude starts a subagent.</Text>}
+        {runBoxes}
         {groups}
         {e.props.isFocused === false ? (
           <Text key="focus-hint" dimColor wrap="truncate-end">

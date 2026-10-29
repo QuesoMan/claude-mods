@@ -2,7 +2,10 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { FoundElement } from 'claude-code/testing'
 import type { ThemeKey } from 'claude-code'
 
-import { CRAB_BOX, JEV_BOX, JEV_JUDGE_BOX, crabSprite, drawCrab, drawJev, jevCanvas, jevSprite, petCanvas, poseAt, tierOf } from './register'
+import { CRAB_BOX, JEV_BOX, JEV_JUDGE_BOX, PLAN_ON, crabSprite, drawCrab, drawJev, jevCanvas, jevSprite, petCanvas, poseAt, tierOf } from './register'
+
+/** Tests of the plan's mirroring and nudges, which run only while the plan is on. */
+const planTest: typeof test = PLAN_ON ? test : () => undefined
 
 /** The `on` a test body is handed. */
 type On = Parameters<NonNullable<Parameters<typeof test>[2]>>[1]
@@ -479,7 +482,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(await bandSays(v, surface), 'back on the next update').toContain('Tasks 3/4')
   })
 
-  test(`a TodoWrite call on the main chat is mirrored into the plan (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
+  planTest(`a TodoWrite call on the main chat is mirrored into the plan (${surface})`, { timeoutMs: 30000 }, async ($, on) => {
     const files: Record<string, string> = {}
     const { clock } = rig(on, files)
     await $.session.start({ source: 'startup', cwd: '/Users/test/vault', surface, isInteractive: true } as never)
@@ -690,7 +693,7 @@ test('the band yields to a survey', { timeoutMs: 30000 }, async ($, on) => {
   expect(await shown.find({ key: 'plan-band' }), 'no survey: band').toBeDefined()
 })
 
-test('the plan tool sits in front, and work without a plan gets one nudge', { timeoutMs: 30000 }, async ($, on) => {
+planTest('the plan tool sits in front, and work without a plan gets one nudge', { timeoutMs: 30000 }, async ($, on) => {
   specs = []
   const files: Record<string, string> = {}
   const { clock } = rig(on, files)

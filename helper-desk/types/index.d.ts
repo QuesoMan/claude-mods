@@ -46,6 +46,20 @@ export type Helper = {
   seat: number
   /** Which of the 8 body colours its pet wears; running helpers never share one while there are 8 or fewer. */
   hue: number
+  /** Set for an agent a workflow script's `agent()` started: it draws as a row of its run, not as a card. */
+  workflow?: HelperRun
+}
+
+/** Where a workflow agent sits: its run, its stage, and its place in the run. */
+export type HelperRun = {
+  /** The run's id, `wf_...`. */
+  runId: string
+  /** Its place among the run's `agent()` calls, from 1. */
+  index: number
+  /** The run's name from its script's `meta`, empty until read. */
+  name: string
+  /** The `phase` it ran under, empty until read or when it named none. */
+  stage: string
 }
 
 export type JevPhase = 'asking' | 'answered' | 'skipped' | 'judging' | 'judged'
@@ -68,6 +82,41 @@ export type JevCall = {
   stale?: boolean
 }
 
+/** One tool call in a transcript: what it did in plain words, and its output. */
+export type TranscriptTool = {
+  tool: string
+  text: string
+  result: string
+  isError?: boolean
+}
+
+/** One row of a subagent's transcript: a message, a run of tool calls that folds into one line, or its report. */
+export type TranscriptRow =
+  | { who: 'Prompt' | 'You' | 'Claude'; text: string }
+  /** What the subagent handed back to the main agent: its report, or its last reply. */
+  | { who: 'Report'; text: string }
+  | { who: 'Tools'; tools: TranscriptTool[] }
+
+/** A transcript message as the reader lays it out: the engine's own rows, or one read back from the saved file. */
+export type TranscriptMessage = {
+  role: 'user' | 'assistant'
+  text: string
+  toolUses: { tool: string; input: Record<string, unknown>; text?: string; isError?: boolean }[]
+}
+
+/** The transcript open in the pane, if any. */
+export type TranscriptView = {
+  /** The helper whose transcript is open; null shows the cards. */
+  id: string | null
+  rows: TranscriptRow[]
+  /** Why it could not be read, empty when it could. */
+  error: string
+  /** Messages left out at the top to keep the pane light. */
+  skipped: number
+  /** Unfolded tool runs ("r3") and tool outputs ("r3-1"); everything else stays folded. */
+  open: string[]
+}
+
 export type PlanStatus = 'pending' | 'in_progress' | 'completed'
 
 /** What the plan band draws: the chat's plan, and whether the band shows it now. */
@@ -86,6 +135,8 @@ declare module 'claude-code' {
       clock: { tick: number; now: number }
       /** Which cards show their full step list, and which groups are folded. */
       view: { open: string[]; folded: string[] }
+      /** The subagent transcript open in the pane. */
+      transcript: TranscriptView
       /** The chat's /cost total in US dollars, null where the host keeps none. */
       cost: { usd: number | null }
       /** Jev input tokens billed in this chat, from jev-lab's live file. */

@@ -6,7 +6,7 @@ Mods for Claude Code.
 |---|---|
 | [cache-bar](cache-bar) | Status-line bar under your existing status line showing how long the prompt cache stays warm, with a handoff countdown: `cache ▰▰▰▱▱▱▱▱ 23m 182k · handoff in 18m`. Turns yellow at a quarter of the TTL, red at the handoff threshold, and follows the drop to a 5-minute TTL. `/cache-bar:setup` installs it. |
 | [filetree](filetree) | Fork of [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) that shows only the files Claude touched this session; the header's `◆` button toggles to the whole tree. |
-| [helper-desk](helper-desk) | Task list above the prompt that follows Claude's to-do list, plus a side pane with one live card per subagent. |
+| [helper-desk](helper-desk) | Side pane with one live card per subagent. Click **Read transcript** on a card to read that subagent's whole conversation: tool calls fold into one line like the chat, and its report to the main agent shows at the end. A workflow's agents group into one box per run, by stage, one row each, and a row opens that agent's transcript too. (In this fork the task list above the prompt is off; set `PLAN_ON` in `hooks/register.tsx` to bring it back.) |
 | [helpin-per](helpin-per) | Pane listing open Helpin PER-* tasks; pick one to have Claude start working on it. |
 | [cache-clock](cache-clock) | Countdown above the prompt until the chat's cache goes cold, with a Keep warm button. |
 | [handoff](handoff) | When a chat gets very long, writes a handoff prompt and starts a fresh chat with it (`/refresh <focus>`; the handoff tells the new chat to run `/pickup`). |
@@ -29,7 +29,7 @@ Reflect saves a rule either to `~/.claude/CLAUDE.md` (Save everywhere) or as its
 At the prompt of a terminal session:
 
 ```
-/plugin install helper-desk --marketplace jz-wilson/claude-mods
+/plugin install helper-desk --marketplace QuesoMan/claude-mods
 ```
 
 Answer `y` to add the marketplace, then pick a scope.
@@ -37,11 +37,13 @@ Answer `y` to add the marketplace, then pick a scope.
 From a shell:
 
 ```
-claude plugin install helper-desk --marketplace jz-wilson/claude-mods
-claude plugin install cache-bar --marketplace jz-wilson/claude-mods
+claude plugin install helper-desk --marketplace QuesoMan/claude-mods
+claude plugin install cache-bar --marketplace QuesoMan/claude-mods
 ```
 
-In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `jz-wilson/claude-mods`, then Add plugin.
+In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `QuesoMan/claude-mods`, then Add plugin.
+
+This is a fork of [jz-wilson/claude-mods](https://github.com/jz-wilson/claude-mods); only helper-desk differs.
 
 ## cache-bar and claude-hud
 
