@@ -1633,6 +1633,22 @@ function toolRunSummary(tools: TranscriptTool[]) {
   return `${line[0]!.toUpperCase()}${line.slice(1)}${failed ? ` · ${failed} failed` : ''}`
 }
 
+/** A structured answer as plain lines: each field under its name, text with its own line breaks, lists one item a line. */
+function structuredText(input: Record<string, unknown>): string {
+  const value = (v: unknown, pad: string): string => {
+    if (typeof v === 'string') return v.split('\n').map(l => `${pad}${l}`).join('\n')
+    if (Array.isArray(v)) return v.map(x => (typeof x === 'object' && x !== null ? `${pad}-\n${value(x, `${pad}  `)}` : `${pad}- ${String(x)}`)).join('\n')
+    if (v && typeof v === 'object')
+      return Object.entries(v as Record<string, unknown>)
+        .map(([k, x]) => (typeof x === 'object' && x !== null ? `${pad}${k}:\n${value(x, `${pad}  `)}` : `${pad}${k}: ${String(x)}`))
+        .join('\n')
+    return `${pad}${String(v)}`
+  }
+  return Object.entries(input)
+    .map(([k, v]) => `${k}:\n${value(v, '  ')}`)
+    .join('\n\n')
+}
+
 /** The text of a saved tool result's content: a string, or its text blocks joined. */
 const blockText = (c: unknown) =>
   typeof c === 'string' ? c : Array.isArray(c) ? c.map(b => (obj(b)?.type === 'text' ? (str(obj(b)?.text) ?? '') : '')).join('\n') : ''
@@ -1714,6 +1730,11 @@ async function loadTranscript($: EngineInterface, id: string) {
             const texts = Object.values(tu.input).filter((v): v is string => typeof v === 'string')
             const report = texts.sort((a, b) => b.length - a.length)[0]?.trim() ?? ''
             rows.push({ who: 'Report', text: report || JSON.stringify(tu.input, null, 2) })
+            continue
+          }
+          // A workflow agent with a schema answers through StructuredOutput: its input is what the script gets back.
+          if (tu.tool === 'StructuredOutput') {
+            rows.push({ who: 'Report', text: structuredText(tu.input) })
             continue
           }
           const out = typeof tu.text === 'string' ? tu.text.trim() : ''
